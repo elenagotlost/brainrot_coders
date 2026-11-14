@@ -17,6 +17,11 @@ answers or passes the problem on:
      any error, timeout or missing letter: the prior answers
                                                             route = fallback
 
+Two optional extras sit in stage 5. --fewshot N (R6) adds N solved training
+problems to the system prompt; the server reads them once. --perms N (R5) asks
+the question N times with the options moved round and averages the
+probabilities, mapped back to the original letters.
+
 The old retrieval path (--rag K) still asks for one letter: route = llm.
 """
 import math
@@ -45,6 +50,32 @@ DEFAULT_ALPHA = 0.5  # weight of the model against the prior without a calibrati
 
 def is_letter(value):
     return isinstance(value, str) and len(value) == 1 and value in LETTERS
+
+
+def shift_options(problem, shift):
+    """R5: the same problem with its options moved `shift` places (A takes B's text, ...)."""
+    if not shift:
+        return problem
+    options = problem["options"]
+    return {**problem, "options": {LETTERS[i]: options[LETTERS[(i + shift) % 5]] for i in range(5)}}
+
+
+def warm_up(ctx, llm_url=URL, timeout=300.0):
+    """One call at start-up, so the server reads the fixed prefix before the first
+    problem and every problem only pays for its own text. Returns the seconds it
+    took, or None if it failed (the time guard then counts the prefix as unread)."""
+    if not ctx.get("prefix"):
+        return None
+    dummy = {"text": "What is 1 + 1?", "options": {"A": "1", "B": "2", "C": "3", "D": "4", "E": "5"}}
+    begin = time.perf_counter()
+    try:
+        answer_probs(dummy, mode=ctx.get("mode") or "direct", timeout=timeout, url=llm_url,
+                     prefix=ctx["prefix"])
+    except Exception:
+        ctx["prefix_warm"] = False
+        return None
+    ctx["prefix_warm"] = True
+    return time.perf_counter() - begin
 
 
 def estimated_prefill_s(messages):
@@ -85,7 +116,9 @@ def solve(problem, index=None, k=0, exclude_id=None, image_b64=None, llm_url=URL
 
     ctx holds the run options, built once by copilot.options.build_ctx:
     {"twins": TwinIndex or None, "calib": dict or None, "no_llm": bool, "mode": str,
-     "probs": saved probabilities to replay instead of calling the model, or None}.
+     "probs": saved probabilities to replay instead of calling the model, or None,
+     "prefix": fixed text for the system prompt (R6), "prefix_warm": it is already in
+     the server's cache, "perms": how many option orders to ask and average (R5)}.
     exclude_id keeps a problem from finding its own translation in the twin
     bank or the RAG index (used while evaluating).
     index and k turn on the old retrieval path: the k most similar solved
@@ -152,24 +185,42 @@ def solve(problem, index=None, k=0, exclude_id=None, image_b64=None, llm_url=URL
             return done(prior_letter, "fallback", "error: no saved probabilities for this problem")
         p_llm, result["letter_mass"] = saved
     else:
-        # 4. time guard
         mode = ctx.get("mode") or "direct"
         prefix = ctx.get("prefix")
-        elapsed = time.perf_counter() - start
-        if elapsed + estimated_prefill_s(probs_messages(problem, prefix)) + GENERATION_S > time_limit - MARGIN:
-            return done(prior_letter, "prior-time")
-
-        # 5. the model's probabilities
-        try:
-            remaining = time_limit - (time.perf_counter() - start) - MARGIN
-            p_llm, timings = answer_probs(problem, mode=mode, timeout=max(remaining, 1.0),
-                                          url=llm_url, prefix=prefix)
-        except NotImplementedError:
-            raise  # an unknown mode is a mistake in the command, not a model failure
-        except Exception as error:
-            return done(prior_letter, "fallback", failure(error))
-        result["prompt_tokens"] = timings.get("prompt_n", 0)
-        result["letter_mass"] = timings.get("letter_mass")
+        # a prefix that the warm-up call already put in the server's cache costs no reading time
+        counted_prefix = None if ctx.get("prefix_warm") else prefix
+        total = {letter: 0.0 for letter in LETTERS}
+        masses, used = [], 0
+        for shift in range(max(1, int(ctx.get("perms") or 1))):
+            asked = shift_options(problem, shift)
+            # 4. time guard, before every call
+            elapsed = time.perf_counter() - start
+            reading = estimated_prefill_s(probs_messages(asked, counted_prefix))
+            if elapsed + reading + GENERATION_S > time_limit - MARGIN:
+                if shift == 0:
+                    return done(prior_letter, "prior-time")
+                break  # no time for another permutation: keep what we have
+            # 5. the model's probabilities
+            try:
+                remaining = time_limit - (time.perf_counter() - start) - MARGIN
+                p_shift, timings = answer_probs(asked, mode=mode, timeout=max(remaining, 1.0),
+                                                url=llm_url, prefix=prefix)
+            except NotImplementedError:
+                raise  # an unknown mode is a mistake in the command, not a model failure
+            except Exception as error:
+                if shift == 0:
+                    return done(prior_letter, "fallback", failure(error))
+                break
+            result["prompt_tokens"] += timings.get("prompt_n", 0) or 0
+            if p_shift is None:
+                continue
+            for i, letter in enumerate(LETTERS):  # option i of the asked order is option i + shift of ours
+                total[LETTERS[(i + shift) % 5]] += p_shift[letter]
+            masses.append(timings.get("letter_mass") or 0.0)
+            used += 1
+        result["perms_used"] = used
+        p_llm = {letter: total[letter] / used for letter in LETTERS} if used else None
+        result["letter_mass"] = sum(masses) / used if used else None
 
     # the model's letter bias is divided out, then the result is fused with the prior
     if p_llm is None:

@@ -26,7 +26,7 @@ from copilot.pipeline import TIME_LIMIT, solve
 
 LETTERS = "ABCDE"
 # Columns that describe the problem (from the v2 data) or the path the cascade took
-EXTRA = ["route", "topic", "options_kind", "options_source"]
+EXTRA = ["route", "topic", "options_kind", "options_source", "perms_used"]
 PROBS = ["p" + letter for letter in LETTERS] + ["letter_mass"]
 
 
@@ -63,6 +63,8 @@ def main():
     p.add_argument("--rag", type=int, default=0, metavar="K")
     p.add_argument("--index", default="data/index.db")
     p.add_argument("--name", default="", help="a label for this experiment in ablations.csv")
+    p.add_argument("--with-options", action="store_true",
+                   help="only problems that have five options, the ones the model is asked")
     add_cascade_arguments(p)
     args = p.parse_args()
 
@@ -71,6 +73,8 @@ def main():
     languages = set(filter(None, args.languages.split(",")))
     if languages:
         problems = [x for x in problems if x["language"] in languages]
+    if args.with_options:
+        problems = [x for x in problems if len(x.get("options") or {}) == 5]
     random.Random(42).shuffle(problems)  # the same sample every run, so runs compare
     if args.limit:
         problems = problems[:args.limit]
