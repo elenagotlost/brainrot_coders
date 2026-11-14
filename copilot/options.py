@@ -32,6 +32,9 @@ def add_cascade_arguments(parser):
                         help="where the --fewshot examples come from: training problems only")
     parser.add_argument("--perms", type=int, default=1, metavar="N", choices=range(1, 6),
                         help="R5: ask N times with the options moved round and average (each costs a re-read)")
+    parser.add_argument("--code", choices=["auto", "on", "off"], default="auto",
+                        help="the code stage: the model writes a short program and the board runs it. "
+                             "auto (default): on when the code model server answers")
     parser.add_argument("--probs", default=[], nargs="+", metavar="CSV",
                         help="replay the probabilities saved by laptop/dump_probs.py instead of calling "
                              "the model (for scoring a whole split fast; the times mean nothing). "
@@ -60,6 +63,15 @@ def build_ctx(args, default_bank):
            "prefix": None, "prefix_warm": False, "perms": args.perms}
     if args.probs:
         ctx["probs"] = load_probs(args.probs)
+    ctx["code"] = False
+    if args.code != "off" and not args.no_llm and not args.probs:
+        from . import coder
+        seconds = coder.warm_up()
+        if seconds is None and args.code == "on":
+            sys.exit(f"--code on, but no code model answers at {coder.URL}")
+        ctx["code"] = seconds is not None
+        print(f"code stage: {'on, warm-up ' + format(seconds, '.1f') + ' s' if ctx['code'] else 'off (no server)'}"
+              f" ({coder.URL})", file=sys.stderr)
     if args.priors:
         from . import priors
         if not priors.load_tables(args.priors):
