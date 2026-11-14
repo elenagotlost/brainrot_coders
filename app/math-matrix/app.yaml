@@ -1,0 +1,6 @@
+name: math-matrix
+icon: 🧮
+description: Answer A to E on a web page, write text or draw pixels, and see it on the LED matrix
+ports: []
+bricks:
+  - arduino:web_ui
