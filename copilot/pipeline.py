@@ -84,7 +84,8 @@ def solve(problem, index=None, k=0, exclude_id=None, image_b64=None, llm_url=URL
     """Return {"answer", "seconds", "status", "route", ...} for one problem.
 
     ctx holds the run options, built once by copilot.options.build_ctx:
-    {"twins": TwinIndex or None, "calib": dict or None, "no_llm": bool, "mode": str}.
+    {"twins": TwinIndex or None, "calib": dict or None, "no_llm": bool, "mode": str,
+     "probs": saved probabilities to replay instead of calling the model, or None}.
     exclude_id keeps a problem from finding its own translation in the twin
     bank or the RAG index (used while evaluating).
     index and k turn on the old retrieval path: the k most similar solved
@@ -143,24 +144,34 @@ def solve(problem, index=None, k=0, exclude_id=None, image_b64=None, llm_url=URL
         except Exception as error:
             return done(prior_letter, "fallback", failure(error))
 
-    # 4. time guard
-    mode = ctx.get("mode") or "direct"
-    prefix = ctx.get("prefix")
-    elapsed = time.perf_counter() - start
-    if elapsed + estimated_prefill_s(probs_messages(problem, prefix)) + GENERATION_S > time_limit - MARGIN:
-        return done(prior_letter, "prior-time")
+    if ctx.get("probs") is not None:
+        # replay: probabilities saved by laptop/dump_probs.py stand in for the model
+        # call, so a whole split is scored in seconds. Latency means nothing here.
+        saved = ctx["probs"].get((problem.get("id"), problem.get("language", "")))
+        if saved is None:
+            return done(prior_letter, "fallback", "error: no saved probabilities for this problem")
+        p_llm, result["letter_mass"] = saved
+    else:
+        # 4. time guard
+        mode = ctx.get("mode") or "direct"
+        prefix = ctx.get("prefix")
+        elapsed = time.perf_counter() - start
+        if elapsed + estimated_prefill_s(probs_messages(problem, prefix)) + GENERATION_S > time_limit - MARGIN:
+            return done(prior_letter, "prior-time")
 
-    # 5. the model's probabilities, without its letter bias, fused with the prior
-    try:
-        remaining = time_limit - (time.perf_counter() - start) - MARGIN
-        p_llm, timings = answer_probs(problem, mode=mode, timeout=max(remaining, 1.0),
-                                      url=llm_url, prefix=prefix)
-    except NotImplementedError:
-        raise  # an unknown mode is a mistake in the command, not a model failure
-    except Exception as error:
-        return done(prior_letter, "fallback", failure(error))
-    result["prompt_tokens"] = timings.get("prompt_n", 0)
-    result["letter_mass"] = timings.get("letter_mass")
+        # 5. the model's probabilities
+        try:
+            remaining = time_limit - (time.perf_counter() - start) - MARGIN
+            p_llm, timings = answer_probs(problem, mode=mode, timeout=max(remaining, 1.0),
+                                          url=llm_url, prefix=prefix)
+        except NotImplementedError:
+            raise  # an unknown mode is a mistake in the command, not a model failure
+        except Exception as error:
+            return done(prior_letter, "fallback", failure(error))
+        result["prompt_tokens"] = timings.get("prompt_n", 0)
+        result["letter_mass"] = timings.get("letter_mass")
+
+    # the model's letter bias is divided out, then the result is fused with the prior
     if p_llm is None:
         return done(prior_letter, "fallback", "error: no letter among the model's top tokens")
     for letter in LETTERS:
