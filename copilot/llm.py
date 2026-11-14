@@ -57,7 +57,10 @@ def answer_letter(problem, examples=(), timeout=60, image_b64=None, url=URL):
 
 
 LETTERS = "ABCDE"
-TOP_LOGPROBS = 20
+# Read deep: without a grammar the base model often wants to start a sentence, so a
+# letter can sit far down the list. laptop/dump_probs.py reads the same depth, and the
+# calibration is fitted on its output, so keep the two the same.
+TOP_LOGPROBS = 5000
 _debug_printed = False
 
 
@@ -74,18 +77,24 @@ def probs_messages(problem, prefix=None):
 def letter_probs(top_logprobs):
     """Map the top tokens of the first position onto A-E and renormalize.
 
-    The same letter can come as "A", " A" or "A)": their probabilities add up.
-    Returns None when no letter is among the top tokens.
+    Returns (probabilities or None, letter_mass). The same rule as
+    laptop/dump_probs.py: "A", " A", "A)", "(A" and "**A" count as A, and their
+    probabilities add up; a lowercase "a" does not count. None means no letter
+    was among the tokens. letter_mass is the share of the listed probability
+    that fell on letters before renormalizing.
     """
     p = {letter: 0.0 for letter in LETTERS}
+    listed = 0.0
     for item in top_logprobs:
-        token = item["token"].strip().rstrip(")").upper()
-        if token in p:
-            p[token] += math.exp(item["logprob"])
-    total = sum(p.values())
-    if total <= 0:
-        return None
-    return {letter: value / total for letter, value in p.items()}
+        value = math.exp(item["logprob"])
+        listed += value
+        token = item["token"].strip().strip("()*")
+        if len(token) == 1 and token in p:
+            p[token] += value
+    mass = sum(p.values())
+    if mass <= 0:
+        return None, 0.0
+    return {letter: value / mass for letter, value in p.items()}, mass / listed
 
 
 def answer_probs(problem, mode="direct", timeout=60, url=URL, prefix=None):
@@ -111,8 +120,10 @@ def answer_probs(problem, mode="direct", timeout=60, url=URL, prefix=None):
     top = response["choices"][0]["logprobs"]["content"][0]["top_logprobs"]
     if os.environ.get("COPILOT_DEBUG_PROBS") and not _debug_printed:
         _debug_printed = True
-        print("raw top tokens: " + ", ".join(f"{t['token']!r}:{math.exp(t['logprob']):.3f}" for t in top),
+        print("raw top tokens: " + ", ".join(f"{t['token']!r}:{math.exp(t['logprob']):.3f}" for t in top[:20]),
               file=sys.stderr)
+    probs, letter_mass = letter_probs(top)
     timings = dict(response.get("timings", {}))
     timings["total_prompt_tokens"] = response.get("usage", {}).get("prompt_tokens")
-    return letter_probs(top), timings
+    timings["letter_mass"] = letter_mass
+    return probs, timings

@@ -27,7 +27,7 @@ from copilot.pipeline import TIME_LIMIT, solve
 LETTERS = "ABCDE"
 # Columns that describe the problem (from the v2 data) or the path the cascade took
 EXTRA = ["route", "topic", "options_kind", "options_source"]
-PROBS = ["p" + letter for letter in LETTERS]
+PROBS = ["p" + letter for letter in LETTERS] + ["letter_mass"]
 
 
 def git_commit():

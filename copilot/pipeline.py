@@ -160,6 +160,7 @@ def solve(problem, index=None, k=0, exclude_id=None, image_b64=None, llm_url=URL
     except Exception as error:
         return done(prior_letter, "fallback", failure(error))
     result["prompt_tokens"] = timings.get("prompt_n", 0)
+    result["letter_mass"] = timings.get("letter_mass")
     if p_llm is None:
         return done(prior_letter, "fallback", "error: no letter among the model's top tokens")
     for letter in LETTERS:
