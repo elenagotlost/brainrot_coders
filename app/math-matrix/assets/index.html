@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Math matrix</title>
+  <style>
+    body { font: 18px system-ui, sans-serif; max-width: 640px; margin: 32px auto; padding: 0 16px; color: #1d1d1f; }
+    h1 { margin-bottom: 4px; }
+    h2 { font-size: 18px; margin: 28px 0 8px; }
+    section { border-top: 1px solid #ddd; }
+    input[type=text] { font-size: 20px; padding: 8px; width: 60%; }
+    button { font-size: 18px; padding: 8px 14px; margin: 4px 4px 4px 0; cursor: pointer; }
+    #letters button { font-size: 28px; width: 64px; height: 64px; }
+    #grid { display: grid; grid-template-columns: repeat(13, 30px); gap: 3px; background: #111; padding: 8px; width: max-content; border-radius: 8px; }
+    .px { width: 30px; height: 30px; border-radius: 50%; background: #333; cursor: pointer; }
+    .px.on { background: #ff3b30; box-shadow: 0 0 8px #ff3b30; }
+    #status { background: #f2f2f7; padding: 10px 12px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Math matrix</h1>
+  <p id="status">Loading…</p>
+
+  <section>
+    <h2>Write text</h2>
+    <input id="text" type="text" maxlength="60" placeholder="HELLO, 42, A+B=C">
+    <button id="send-text">Show</button>
+    <p style="font-size:14px;color:#666">Letters, digits and ! ? . , - + = : *. Up to 2 characters stay still; longer text scrolls.</p>
+  </section>
+
+  <section>
+    <h2>Draw pixels</h2>
+    <div id="grid"></div>
+    <button id="send-pixels">Show drawing</button>
+    <button id="clear">Clear</button>
+    <button id="invert">Invert</button>
+  </section>
+
+  <section>
+    <h2>Answer</h2>
+    <div id="letters"></div>
+  </section>
+
+  <script>
+    const status = document.querySelector("#status");
+    const call = async (path) => {
+      const result = await (await fetch(path)).json();
+      status.textContent = result.error || "Sending…";
+    };
+
+    // text
+    const textBox = document.querySelector("#text");
+    const sendText = () => {
+      const text = textBox.value.replace(/\//g, "-").trim();
+      if (text) call("/text/" + encodeURIComponent(text));
+    };
+    document.querySelector("#send-text").onclick = sendText;
+    textBox.addEventListener("keydown", (e) => { if (e.key === "Enter") sendText(); });
+
+    // pixel grid: 8 rows x 13 columns, click or drag to paint
+    const grid = document.querySelector("#grid");
+    const cells = [];
+    let painting = null;
+    for (let i = 0; i < 8 * 13; i++) {
+      const cell = document.createElement("div");
+      cell.className = "px";
+      cell.onmousedown = () => { painting = !cell.classList.contains("on"); cell.classList.toggle("on", painting); };
+      cell.onmouseenter = () => { if (painting !== null) cell.classList.toggle("on", painting); };
+      grid.append(cell);
+      cells.push(cell);
+    }
+    document.addEventListener("mouseup", () => { painting = null; });
+    document.querySelector("#send-pixels").onclick = () =>
+      call("/pixels/" + cells.map((c) => (c.classList.contains("on") ? "1" : "0")).join(""));
+    document.querySelector("#clear").onclick = () => cells.forEach((c) => c.classList.remove("on"));
+    document.querySelector("#invert").onclick = () => cells.forEach((c) => c.classList.toggle("on"));
+
+    // answer buttons
+    for (const letter of "ABCDE") {
+      const button = document.createElement("button");
+      button.textContent = letter;
+      button.onclick = () => call("/answer/" + letter);
+      document.querySelector("#letters").append(button);
+    }
+
+    setInterval(async () => {
+      const state = await (await fetch("/status")).json();
+      if (!state.busy) status.textContent = state.message;
+    }, 1000);
+  </script>
+</body>
+</html>
