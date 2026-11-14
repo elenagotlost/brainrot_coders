@@ -98,7 +98,7 @@
         r1answer: "Its answer", r2: "Hint 2 · What kind of problem is this?", r3: "Hint 3 · A hint from the board's small model",
         r3warn: "It was written on this board by a small model, and checked so it does not contain the answer. It can still be wrong: check it.",
         r3none: "The model had no safe hint for this problem. Read hint 2 again and try a smaller example.",
-        r4: "The solution", answer: "Answer", confirm: "Show the solution? You will not be able to answer this problem any more.",
+        r4: "The solution", answer: "Answer", confirm: "Sure? Click again to see the solution",
         topics: { arithmetic: "Arithmetic", number_theory: "Numbers and digits", measurement_time: "Measures, time, money", plane_geometry: "Plane geometry",
           solid_geometry: "Solids", combinatorics: "Counting", logic: "Logic", grids_tables: "Grids and tables", algebra: "Algebra",
           sequences_patterns: "Patterns", spatial_visual: "Shapes in space", graphs_paths: "Paths", probability: "Chance", other: "Problem solving" } },
@@ -113,14 +113,14 @@
         r1answer: "La seva resposta", r2: "Pista 2 · Quina mena de problema és?", r3: "Pista 3 · Una pista del model petit de la placa",
         r3warn: "L'ha escrit un model petit en aquesta placa, i hem comprovat que no conté la resposta. Tot i així es pot equivocar: comprova-la.",
         r3none: "El model no tenia cap pista segura per a aquest problema. Rellegeix la pista 2 i prova un exemple més petit.",
-        r4: "La solució", answer: "Resposta", confirm: "Vols veure la solució? Ja no podràs respondre aquest problema.",
+        r4: "La solució", answer: "Resposta", confirm: "Segur? Torna a clicar per veure la solució",
         topics: { arithmetic: "Aritmètica", number_theory: "Nombres i xifres", measurement_time: "Mesures, temps, diners", plane_geometry: "Geometria plana",
           solid_geometry: "Cossos geomètrics", combinatorics: "Comptar casos", logic: "Lògica", grids_tables: "Quadrícules i taules", algebra: "Àlgebra",
           sequences_patterns: "Patrons", spatial_visual: "Formes a l'espai", graphs_paths: "Camins", probability: "Probabilitat", other: "Resolució de problemes" } },
     };
     const $ = (id) => document.getElementById(id);
     const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
-    let lang = "eng", state = null, timer = null;
+    let lang = "eng", state = null, timer = null, armed = false;
     try { lang = localStorage.getItem("lang") || lang; $("student").value = localStorage.getItem("student") || ""; } catch (e) {}
     const t = () => T[lang] || T.eng;
 
@@ -146,6 +146,7 @@
       if (s.error) { $("feedback").textContent = s.error; return; }
       state = s;
       document.documentElement.lang = lang === "cat" ? "ca" : "en";
+      armed = false;
       document.querySelectorAll("[data-t]").forEach((e) => { e.textContent = t()[e.dataset.t]; });
       [...$("matrix").children].forEach((dot, i) => {
         const v = s.matrix[Math.floor(i / 13)][i % 13];
@@ -218,7 +219,13 @@
       api(`start/${encodeURIComponent(name)}/${lang}/${$("level").value}`);
     };
     $("hint").onclick = () => api("hint");
-    $("solution").onclick = () => { if (confirm(t().confirm)) api("solution"); };
+    // two clicks instead of a confirm() dialog: embedded browsers and kiosks often block dialogs
+    $("solution").onclick = () => {
+      if (armed) { armed = false; api("solution"); return; }
+      armed = true;
+      $("solution").textContent = t().confirm;
+      setTimeout(() => { if (armed) { armed = false; $("solution").textContent = t().solution; } }, 5000);
+    };
     $("next").onclick = $("skip").onclick = () => api("next");
     $("ui-lang").onchange = (e) => {
       lang = e.target.value;
