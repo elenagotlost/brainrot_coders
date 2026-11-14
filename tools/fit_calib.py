@@ -4,6 +4,9 @@
     python tools/fit_calib.py --probs results/probs-<model>-direct-train.csv \\
            --data data/v2/train.jsonl --out results/calib-<model>.json
 
+Only the rows of --data are used, so --probs may hold more problems than that
+(for another split, pass both dumps and that split's train.jsonl).
+
 Two things are fitted, on training problems only:
 
   bias    the model's mean P(letter) over the problems that have options.
@@ -56,15 +59,16 @@ def load_data(path):
         return [json.loads(line) for line in f if line.strip()]
 
 
-def load_probs(path):
+def load_probs(paths):
     """{(id, language): {letter: p}} for the rows where the model was really read."""
     table, skipped = {}, 0
-    with open(path, newline="", encoding="utf-8") as f:
-        for r in csv.DictReader(f):
-            if r.get("status", "ok") != "ok":
-                skipped += 1
-                continue
-            table[r["id"], r["language"]] = {k: float(r["p" + k]) for k in LETTERS}
+    for path in paths:
+        with open(path, newline="", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                if r.get("status", "ok") != "ok":
+                    skipped += 1
+                    continue
+                table[r["id"], r["language"]] = {k: float(r["p" + k]) for k in LETTERS}
     return table, skipped
 
 
@@ -87,7 +91,8 @@ def pct(hits):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--probs", required=True, help="the model's dump on the training split")
+    p.add_argument("--probs", required=True, nargs="+",
+                   help="the model's dump(s) that cover the training problems; several files are joined")
     p.add_argument("--data", default="data/v2/train.jsonl", help="the training problems of that dump")
     p.add_argument("--out", required=True, help="results/calib-<model>.json")
     p.add_argument("--model", default="", help="name stored in the file (default: taken from --probs)")
@@ -95,7 +100,7 @@ def main():
 
     problems = load_data(args.data)
     probs, skipped = load_probs(args.probs)
-    model = args.model or os.path.basename(args.probs).removeprefix("probs-").split("-direct-")[0]
+    model = args.model or os.path.basename(args.probs[0]).removeprefix("probs-").split("-direct-")[0]
 
     rows, no_probs = [], 0
     for problem in problems:
@@ -167,7 +172,7 @@ def main():
     use_prior_tables(fit_prior_tables(problems))
     bias = {k: round(v, 4) for k, v in mean_bias(rows).items()}
     calib = {"model": model, "bias": bias, "alpha": alpha, "cv_acc": cv_acc, "n_train": len(rows),
-             "fitted_on": [args.probs.replace("\\", "/"), args.data.replace("\\", "/")]}
+             "fitted_on": [x.replace("\\", "/") for x in args.probs + [args.data]]}
     print("\nbias (mean P of each letter on train): " + "  ".join(f"{k} {bias[k]:.3f}" for k in LETTERS))
     stem = args.out[:-5] if args.out.endswith(".json") else args.out
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)

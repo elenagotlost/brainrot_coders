@@ -32,21 +32,25 @@ def add_cascade_arguments(parser):
                         help="where the --fewshot examples come from: training problems only")
     parser.add_argument("--perms", type=int, default=1, metavar="N", choices=range(1, 6),
                         help="R5: ask N times with the options moved round and average (each costs a re-read)")
-    parser.add_argument("--probs", default="", metavar="CSV",
+    parser.add_argument("--probs", default=[], nargs="+", metavar="CSV",
                         help="replay the probabilities saved by laptop/dump_probs.py instead of calling "
-                             "the model (for scoring a whole split fast; the times mean nothing)")
+                             "the model (for scoring a whole split fast; the times mean nothing). "
+                             "Several files are joined")
+    parser.add_argument("--priors", default="", metavar="PATH",
+                        help="prior tables to use instead of results/priors.json (for another split)")
 
 
-def load_probs(path):
-    """{(id, language): ({letter: p}, letter_mass)} from a dump. Rows the dump tool
-    could not read from the model (status other than ok) are left out."""
+def load_probs(paths):
+    """{(id, language): ({letter: p}, letter_mass)} from one or more dumps. Rows the
+    dump tool could not read from the model (status other than ok) are left out."""
     table = {}
-    with open(path, newline="", encoding="utf-8") as f:
-        for r in csv.DictReader(f):
-            if r.get("status", "ok") != "ok":
-                continue
-            mass = float(r["letter_mass"]) if r.get("letter_mass") else None
-            table[r["id"], r["language"]] = ({k: float(r["p" + k]) for k in "ABCDE"}, mass)
+    for path in [paths] if isinstance(paths, str) else paths:
+        with open(path, newline="", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                if r.get("status", "ok") != "ok":
+                    continue
+                mass = float(r["letter_mass"]) if r.get("letter_mass") else None
+                table[r["id"], r["language"]] = ({k: float(r["p" + k]) for k in "ABCDE"}, mass)
     return table
 
 
@@ -56,6 +60,10 @@ def build_ctx(args, default_bank):
            "prefix": None, "prefix_warm": False, "perms": args.perms}
     if args.probs:
         ctx["probs"] = load_probs(args.probs)
+    if args.priors:
+        from . import priors
+        if not priors.load_tables(args.priors):
+            sys.exit(f"{args.priors} could not be read as prior tables.")
     if args.fewshot and not args.no_llm and not args.probs:
         from .fewshot import build_prefix
         from .pipeline import warm_up
