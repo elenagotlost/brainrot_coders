@@ -4,22 +4,31 @@
     python3 eval.py --limit 50                    # baseline on 50 validation problems
     python3 eval.py --limit 50 --rag 1 --name rag1
     python3 eval.py --languages cat --limit 100
+    python3 eval.py --limit 0 --no-llm --name prior   # every problem, no model call
 
 Every run writes per-problem results to results/ and adds one line to
 results/ablations.csv, so you can build your ablation table as you go.
+Compare two runs with tools/compare.py.
 """
 import argparse
 import csv
 import json
 import os
 import random
+import re
 import statistics
 import subprocess
+import sys
 import time
 from collections import Counter, defaultdict
 
 from copilot.config import CONFIG
 from copilot.pipeline import TIME_LIMIT, solve
+
+LETTERS = "ABCDE"
+# Columns that describe the problem (from the v2 data) or the path the cascade took
+EXTRA = ["route", "topic", "options_kind", "options_source"]
+PROBS = ["p" + letter for letter in LETTERS]
 
 
 def git_commit():
@@ -34,7 +43,50 @@ def table(title, groups):
     print(f"\n{title}")
     for key in sorted(groups, key=str):
         hits = groups[key]
-        print(f"  {str(key):12} {sum(hits):4}/{len(hits):<4} {100 * sum(hits) / len(hits):5.1f}%")
+        label = str(key) if str(key) else "(none)"
+        print(f"  {label:18} {sum(hits):4}/{len(hits):<4} {100 * sum(hits) / len(hits):5.1f}%")
+
+
+def mode_type(value):
+    if not re.fullmatch(r"direct|reason:\d+", value):
+        raise argparse.ArgumentTypeError("use direct or reason:<tokens>, e.g. reason:128")
+    return value
+
+
+def add_cascade_arguments(p):
+    p.add_argument("--no-llm", action="store_true", help="never call the model: answer the prior")
+    p.add_argument("--twins", action="store_true", help="look for a solved twin in the bank first")
+    p.add_argument("--bank", default="", help="solved problems for --twins (default: train.jsonl next to --input)")
+    p.add_argument("--calib", default="", metavar="PATH", help="calibration file, results/calib-<model>.json")
+    p.add_argument("--mode", type=mode_type, default="direct", help="direct or reason:<tokens>")
+
+
+def build_ctx(args):
+    """The run options that solve() gets with every problem. Built once."""
+    ctx = {"twins": None, "calib": None, "no_llm": args.no_llm, "mode": args.mode}
+    if args.calib:
+        with open(args.calib, encoding="utf-8") as f:
+            ctx["calib"] = json.load(f)
+    if args.twins:
+        try:
+            from copilot.twins import TwinIndex
+        except ImportError:
+            sys.exit("--twins needs copilot/twins.py, which this pipeline doesn't have yet.")
+        bank = args.bank or os.path.join(os.path.dirname(args.input) or ".", "train.jsonl")
+        if not os.path.exists(bank):
+            sys.exit(f"{bank} not found. Pass the solved problems with --bank.")
+        with open(bank, encoding="utf-8") as f:
+            ctx["twins"] = TwinIndex([json.loads(line) for line in f if line.strip()])
+    return ctx
+
+
+def cell(value):
+    """A CSV cell: probabilities with 4 decimals, missing values empty."""
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    return value
 
 
 def main():
@@ -45,6 +97,7 @@ def main():
     p.add_argument("--rag", type=int, default=0, metavar="K")
     p.add_argument("--index", default="data/index.db")
     p.add_argument("--name", default="", help="a label for this experiment in ablations.csv")
+    add_cascade_arguments(p)
     args = p.parse_args()
 
     with open(args.input, encoding="utf-8") as f:
@@ -60,25 +113,27 @@ def main():
     if args.rag:
         from copilot.rag import Index
         index = Index(args.index)
+    ctx = build_ctx(args)
 
     os.makedirs("results", exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    name = args.name or (f"rag{args.rag}" if args.rag else "baseline")
+    name = args.name or (f"rag{args.rag}" if args.rag else "no-llm" if args.no_llm else "baseline")
     detail_path = f"results/eval-{stamp}-{name}.csv"
 
     rows = []
     with open(detail_path, "w", newline="", encoding="utf-8") as out:
         writer = csv.writer(out)
         writer.writerow(["id", "language", "level", "has_options", "label", "answer",
-                         "correct", "seconds", "status", "prompt_tokens", "retrieved"])
+                         "correct", "seconds", "status", "prompt_tokens", "retrieved"] + EXTRA + PROBS)
         for n, problem in enumerate(problems, 1):
-            result = solve(problem, index=index, k=args.rag, exclude_id=problem["id"])
+            result = solve(problem, index=index, k=args.rag, exclude_id=problem["id"], ctx=ctx)
             correct = result["answer"] == problem["label"]
             row = {**problem, **result, "correct": correct, "has_options": bool(problem.get("options"))}
             rows.append(row)
             writer.writerow([problem["id"], problem["language"], problem["level"], row["has_options"],
                              problem["label"], result["answer"], int(correct), result["seconds"],
-                             result["status"], result["prompt_tokens"], result["retrieved"]])
+                             result["status"], result["prompt_tokens"], result["retrieved"]]
+                            + [cell(row.get(key)) for key in EXTRA + PROBS])
             out.flush()
             running = 100 * sum(r["correct"] for r in rows) / len(rows)
             print(f"[{n}/{len(problems)}] {problem['id']} {problem['language']}: "
@@ -99,15 +154,17 @@ def main():
     print(f"Status: {dict(Counter(r['status'] for r in rows))}")
 
     for field, title in (("language", "By language"), ("level", "By level"),
-                         ("has_options", "By whether OCR found the options")):
+                         ("has_options", "By whether OCR found the options"),
+                         ("route", "By route"), ("topic", "By topic")):
         groups = defaultdict(list)
         for r in rows:
-            groups[r[field]].append(r["correct"])
+            value = r.get(field)
+            groups["" if value is None else value].append(r["correct"])
         table(title, groups)
 
     predicted = Counter(r["answer"] for r in rows)
     truth = Counter(r["label"] for r in rows)
-    print("\nLetters   " + "  ".join(f"{l}:{predicted[l]:>3}/{truth[l]:<3}" for l in "ABCDE"))
+    print("\nLetters   " + "  ".join(f"{l}:{predicted[l]:>3}/{truth[l]:<3}" for l in LETTERS))
     print("          (predicted/true; a model that loves one letter shows up here)")
 
     log = "results/ablations.csv"

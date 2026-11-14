@@ -16,8 +16,12 @@ MARGIN = 3.0  # seconds kept free for Python and for writing the answer
 
 
 def solve(problem, index=None, k=0, exclude_id=None, image_b64=None, llm_url=URL,
-          time_limit=TIME_LIMIT):
+          time_limit=TIME_LIMIT, ctx=None):
     """Return {"answer", "seconds", "status", ...} for one problem.
+
+    ctx holds the run options that predict.py and eval.py build once:
+    {"twins", "calib", "no_llm", "mode"}. This baseline only knows no_llm:
+    it answers the fallback letter without calling the model.
 
     index and k turn on retrieval: the k most similar solved problems are
     added to the prompt as examples. Each example costs reading time.
@@ -25,6 +29,10 @@ def solve(problem, index=None, k=0, exclude_id=None, image_b64=None, llm_url=URL
     """
     start = time.perf_counter()
     result = {"answer": FALLBACK, "status": "ok", "prompt_tokens": 0, "retrieved": "", "examples": []}
+    if ctx and ctx.get("no_llm"):
+        result["route"] = "no-llm"
+        result["seconds"] = round(time.perf_counter() - start, 2)
+        return result
     try:
         examples = []
         if index is not None and k > 0:
