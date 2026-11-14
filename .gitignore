@@ -10,6 +10,7 @@ results/*
 # Models live in ~/models, but just in case
 *.gguf
 *.db
+*.db-journal
 
 __pycache__/
 .venv/

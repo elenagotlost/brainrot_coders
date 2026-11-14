@@ -1,6 +1,6 @@
 name: math-matrix
 icon: 🧮
-description: Answer A to E on a web page, write text or draw pixels, and see it on the LED matrix
+description: A math tutor with a hint ladder and adaptive practice on a web page, with feedback on the LED matrix
 ports: []
 bricks:
   - arduino:web_ui

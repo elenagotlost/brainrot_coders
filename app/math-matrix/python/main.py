@@ -9,6 +9,8 @@ import numpy as np
 from arduino.app_bricks.web_ui import WebUI
 from arduino.app_utils import App, Bridge, Frame
 
+import tutor
+
 
 def default_gateway():
     """The board, as seen from inside App Lab's container: the container's default gateway."""
@@ -161,35 +163,65 @@ def draw_pixels(bits: str):
     return {"ok": True}
 
 
-def work(letter):
-    """Runs in a thread: put your copilot here, such as checking the answer or asking for a hint."""
-    show("?")
-    try:
-        with urllib.request.urlopen(LLM + "/health", timeout=5) as response:
-            state["message"] = f"You chose {letter}. Model server {LLM}: {json.loads(response.read())}"
-    except OSError as error:
-        state["message"] = f"You chose {letter}. Model server {LLM} unreachable: {error}"
-    finally:
-        show(letter)
-        state["busy"] = False
+# --- the copilot: hint ladder and adaptive trainer (tutor.py) -------------
+
+def draw_grid(grid):
+    """Called by the tutor on every change: a tick or a cross, the level, the hint rungs."""
+    generation[0] += 1  # stops a scrolling text
+    send(np.array(grid, dtype=np.uint8))
 
 
-def answer(letter: str):
-    letter = letter.upper()
-    if letter not in "ABCDE" or len(letter) != 1:
-        return {"error": "choose A to E"}
-    if state["busy"]:
-        return {"error": "still working"}
-    state["busy"] = True
-    threading.Thread(target=work, args=(letter,), daemon=True).start()
-    return {"ok": True}
+try:
+    copilot = tutor.Tutor(llm=LLM, on_matrix=draw_grid)
+    state["message"] = f"Ready: {len(copilot.bank.problems)} problems in the bank."
+except Exception as error:  # no teach.db yet: the page says so, text and pixels still work
+    copilot = None
+    state["message"] = f"The tutor can't start: {error}"
+
+
+def api(*parts):
+    if copilot is None:
+        return {"error": state["message"]}
+    return copilot.handle(list(parts))
+
+
+def api_start(student: str, lang: str, level: str):
+    return api("start", student, lang, level)
+
+
+def api_answer(letter: str):
+    return api("answer", letter)
+
+
+def api_hint():
+    return api("hint")
+
+
+def api_solution():
+    return api("solution")
+
+
+def api_next():
+    return api("next")
+
+
+def api_state():
+    return api("state")
 
 
 ui = WebUI()
-ui.expose_api("GET", "/answer/{letter}", answer)
+ui.expose_api("GET", "/api/start/{student}/{lang}/{level}", api_start)
+ui.expose_api("GET", "/api/answer/{letter}", api_answer)
+ui.expose_api("GET", "/api/hint", api_hint)
+ui.expose_api("GET", "/api/solution", api_solution)
+ui.expose_api("GET", "/api/next", api_next)
+ui.expose_api("GET", "/api/state", api_state)
 ui.expose_api("GET", "/text/{text}", write_text)
 ui.expose_api("GET", "/pixels/{bits}", draw_pixels)
 ui.expose_api("GET", "/status", lambda: state)
 
-show("?")
+if copilot is None:
+    show("?")
+else:
+    draw_grid(copilot.grid)
 App.run()

@@ -1,24 +1,67 @@
 # math-matrix: the App Lab app
 
-The demo face of the copilot: a web page served by the board, and the board's 8x13 LED matrix.
+The teaching half of the copilot: a hint ladder and an adaptive trainer on a web page served by the
+board, with the board's 8x13 LED matrix.
 It is separate from `predict.py`, which the jury runs from the terminal.
 
 ## What it does
 
-- **Write text:** up to 2 characters stay still; longer text scrolls (A–Z, 0–9, `! ? . , - + = : *`).
-- **Draw pixels:** paint the 8x13 grid on the page and send it to the matrix.
-- **Answer A–E:** shows `?`, checks the model server, then shows the letter. `work()` in
-  `python/main.py` is where copilot logic (hints, checking answers) goes.
+**The tutor** (`/`, `assets/index.html`): the student answers a Kangaroo problem A to E. Each time they
+ask for help, the copilot climbs one rung of a hint ladder, and never jumps to the answer:
+
+| Rung | What the student gets | Where it comes from | Cost |
+| --- | --- | --- | --- |
+| 1 | A similar, easier problem, already solved | M3Kang as a map: the nearest neighbour at a lower level | lookup |
+| 2 | The topic, and a method for it | The problem's topic tag | lookup |
+| 3 | One sentence from the small model | Stored in the bank, or generated live. A code check rejects any hint that contains the answer value, points at an option, or calculates | lookup, or one model call |
+| 4 | The solution | Only after the three hints, and only when the student asks for it | lookup |
+
+The next problem comes from the same map: solved alone, a neighbour one level up; solved with help, the
+same level; not solved, the same topic one level down. The LED matrix shows `L` and the level, a tick or
+a cross, a row of dots while the model writes, and one small bar per hint used. The student's history
+(by topic: alone, with help, not yet) stays in `python/students.db` on the board.
+
+**The matrix page** (`/draw.html`): write text or draw pixels on the 8x13 matrix.
 
 ## Layout
 
 ```text
 app.yaml                 name and bricks (arduino:web_ui)
-python/main.py           runs on Linux in App Lab's container: web API, model calls, matrix frames
+python/main.py           runs on Linux in App Lab's container: web API, matrix frames
+python/tutor.py          the hint ladder, the leak check and the adaptive trainer (standard library only)
+python/dev_server.py     the same page and API on a laptop, without App Lab
+python/teach.db          the bank, built by laptop/build_teach_bank.py (M3Kang text: not in Git)
 python/setup_bridge.sh   one-time board setup so the app can reach the model (see below)
-assets/index.html        the web page (port 7000)
+assets/index.html        the tutor page (port 7000)
+assets/draw.html         text and pixels on the matrix
 sketch/sketch.ino        runs on the microcontroller: draws frames received over the Bridge
 sketch/sketch.yaml       board platform
+```
+
+## Build the bank
+
+From the repository root, with `data/train.jsonl` and `data/val.jsonl` prepared (README step 9, then `laptop/canonicalize.py`)
+and the language model server running:
+
+```bash
+python3 laptop/build_teach_bank.py --hints
+```
+
+It keeps the text-only problems with five clean options, builds the similarity map, and asks the 0.8B
+model for one hint per problem. Hints that fail the code check are not stored. It is resumable, and it
+runs on the board too (about 20 seconds per hint there), so the bank can be built with nothing but the
+board. Then copy `python/teach.db` to the board with the rest of the app.
+
+Try the page on a laptop:
+
+```bash
+python3 app/math-matrix/python/dev_server.py --port 7000
+```
+
+Measure it (leak rate, rung 1 quality, time per rung, simulated students):
+
+```bash
+python3 tools/teach_report.py --sample 20
 ```
 
 ## Install on a board

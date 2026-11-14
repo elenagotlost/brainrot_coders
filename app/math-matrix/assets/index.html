@@ -3,91 +3,230 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Math matrix</title>
+  <title>Math matrix tutor</title>
   <style>
-    body { font: 18px system-ui, sans-serif; max-width: 640px; margin: 32px auto; padding: 0 16px; color: #1d1d1f; }
-    h1 { margin-bottom: 4px; }
-    h2 { font-size: 18px; margin: 28px 0 8px; }
-    section { border-top: 1px solid #ddd; }
-    input[type=text] { font-size: 20px; padding: 8px; width: 60%; }
-    button { font-size: 18px; padding: 8px 14px; margin: 4px 4px 4px 0; cursor: pointer; }
-    #letters button { font-size: 28px; width: 64px; height: 64px; }
-    #grid { display: grid; grid-template-columns: repeat(13, 30px); gap: 3px; background: #111; padding: 8px; width: max-content; border-radius: 8px; }
-    .px { width: 30px; height: 30px; border-radius: 50%; background: #333; cursor: pointer; }
-    .px.on { background: #ff3b30; box-shadow: 0 0 8px #ff3b30; }
-    #status { background: #f2f2f7; padding: 10px 12px; border-radius: 8px; }
+    :root { --ink: #1d1d1f; --soft: #6e6e73; --line: #d9d9de; --paper: #fbfaf7; --card: #fff;
+            --go: #0a7d4f; --stop: #b3261e; --accent: #2f5fd0; --led: #ff3b30; }
+    * { box-sizing: border-box; }
+    body { font: 19px/1.6 Verdana, "Trebuchet MS", system-ui, sans-serif; letter-spacing: .02em; color: var(--ink);
+           background: var(--paper); max-width: 760px; margin: 0 auto; padding: 20px 16px 60px; }
+    header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+    h1 { font-size: 24px; margin: 0; flex: 1; }
+    h2 { font-size: 17px; margin: 0 0 8px; color: var(--soft); font-weight: 600; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 14px; }
+    button, select, input { font: inherit; }
+    button { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 10px 16px; cursor: pointer; }
+    button:hover:not(:disabled) { border-color: var(--accent); }
+    button:disabled { opacity: .45; cursor: default; }
+    button.main { background: var(--accent); color: #fff; border-color: var(--accent); }
+    input[type=text], select { padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+    .chip { font-size: 14px; background: #eef1f8; border-radius: 99px; padding: 2px 12px; color: #33415c; }
+    #text { font-size: 20px; margin: 0 0 14px; white-space: pre-wrap; }
+    #options { display: grid; gap: 8px; }
+    #options button { text-align: left; display: flex; gap: 14px; align-items: baseline; }
+    #options b { min-width: 1.2em; }
+    #options .wrong { border-color: var(--stop); color: var(--stop); text-decoration: line-through; }
+    #options .right { border-color: var(--go); background: #e9f6ef; color: var(--go); }
+    #feedback { min-height: 1.6em; margin: 12px 0 0; font-weight: 600; }
+    #feedback.good { color: var(--go); } #feedback.bad { color: var(--stop); }
+    .rung { border-left: 4px solid var(--accent); padding: 6px 0 6px 14px; margin: 12px 0; }
+    .rung h3 { font-size: 16px; margin: 0 0 4px; color: var(--accent); }
+    .rung p { margin: 4px 0; }
+    .rung .small { font-size: 15px; color: var(--soft); }
+    .rung .example { background: #f5f6fa; border-radius: 8px; padding: 10px 12px; }
+    #matrix { display: grid; grid-template-columns: repeat(13, 9px); gap: 2px; background: #111; padding: 6px; border-radius: 6px; }
+    #matrix i { width: 9px; height: 9px; border-radius: 50%; background: #2a2a2a; }
+    .bar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: #eee; flex: 1; min-width: 120px; }
+    .bar span:nth-child(1) { background: var(--go); } .bar span:nth-child(2) { background: #e0a100; } .bar span:nth-child(3) { background: #c9c9cf; }
+    .topic { display: flex; gap: 10px; align-items: center; font-size: 15px; margin: 4px 0; }
+    .topic label { width: 190px; }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
-  <h1>Math matrix</h1>
-  <p id="status">Loading…</p>
+  <header>
+    <h1 data-t="title">Math matrix tutor</h1>
+    <div id="matrix" title="What the board's LED matrix shows"></div>
+    <select id="ui-lang" aria-label="Language"><option value="eng">English</option><option value="cat">Català</option></select>
+  </header>
 
-  <section>
-    <h2>Write text</h2>
-    <input id="text" type="text" maxlength="60" placeholder="HELLO, 42, A+B=C">
-    <button id="send-text">Show</button>
-    <p style="font-size:14px;color:#666">Letters, digits and ! ? . , - + = : *. Up to 2 characters stay still; longer text scrolls.</p>
-  </section>
+  <div class="card" id="start-card">
+    <h2 data-t="who">Who is practising?</h2>
+    <div class="row">
+      <input id="student" type="text" maxlength="24" placeholder="Name">
+      <label><span data-t="level">Level</span>
+        <select id="level"></select></label>
+      <button class="main" id="start" data-t="start">Start</button>
+    </div>
+    <p class="small" style="font-size:15px;color:var(--soft)" data-t="private">Everything stays on this board. Nothing is sent to the internet.</p>
+  </div>
 
-  <section>
-    <h2>Draw pixels</h2>
-    <div id="grid"></div>
-    <button id="send-pixels">Show drawing</button>
-    <button id="clear">Clear</button>
-    <button id="invert">Invert</button>
-  </section>
+  <div class="card" id="problem-card" hidden>
+    <div class="chips"><span class="chip" id="chip-level"></span><span class="chip" id="chip-topic"></span><span class="chip" id="chip-id"></span></div>
+    <p id="text"></p>
+    <div id="options"></div>
+    <p id="feedback"></p>
+    <div id="ladder"></div>
+    <div class="row" style="margin-top:14px">
+      <button id="hint"></button>
+      <button id="solution" hidden data-t="solution">Show me the solution</button>
+      <button id="next" class="main" hidden data-t="next">Next problem</button>
+      <button id="skip" data-t="skip">Skip</button>
+    </div>
+  </div>
 
-  <section>
-    <h2>Answer</h2>
-    <div id="letters"></div>
-  </section>
+  <div class="card" id="profile-card" hidden>
+    <h2 data-t="progress">Your progress</h2>
+    <p style="font-size:15px;color:var(--soft);margin:0 0 8px" data-t="legend">Green: solved alone. Yellow: solved with help. Grey: not yet.</p>
+    <div id="profile"></div>
+  </div>
+
+  <p style="font-size:14px"><a href="draw.html" data-t="draw">Write or draw on the LED matrix</a></p>
 
   <script>
-    const status = document.querySelector("#status");
-    const call = async (path) => {
-      const result = await (await fetch(path)).json();
-      status.textContent = result.error || "Sending…";
+    const T = {
+      eng: { title: "Math matrix tutor", who: "Who is practising?", level: "Level", start: "Start", solution: "Show me the solution",
+        next: "Next problem", skip: "Skip", progress: "Your progress", private: "Everything stays on this board. Nothing is sent to the internet.",
+        legend: "Green: solved alone. Yellow: solved with help. Grey: not yet.", draw: "Write or draw on the LED matrix",
+        hint: (n) => `I need a hint (${n} of 3)`, noHints: "No more hints", thinking: "The board is thinking of a hint…",
+        right: "Correct! Well done.", rightHelp: "Correct! You got there with some help.", wrong: "Not that one. Try again, or ask for a hint.",
+        revealed: "Here is the solution. The next one will be a bit easier.", lvl: (n) => `Level ${n}`,
+        r1: "Hint 1 · A similar problem, already solved", r1easier: "This one is easier. Can you use the same idea?",
+        r1same: "Same level, same kind of thinking. Can you use the same idea?", r1none: "No similar problem found for this one.",
+        r1answer: "Its answer", r2: "Hint 2 · What kind of problem is this?", r3: "Hint 3 · A hint from the board's small model",
+        r3warn: "It was written on this board by a small model, and checked so it does not contain the answer. It can still be wrong: check it.",
+        r3none: "The model had no safe hint for this problem. Read hint 2 again and try a smaller example.",
+        r4: "The solution", answer: "Answer", confirm: "Show the solution? You will not be able to answer this problem any more.",
+        topics: { arithmetic: "Arithmetic", number_theory: "Numbers and digits", measurement_time: "Measures, time, money", plane_geometry: "Plane geometry",
+          solid_geometry: "Solids", combinatorics: "Counting", logic: "Logic", grids_tables: "Grids and tables", algebra: "Algebra",
+          sequences_patterns: "Patterns", spatial_visual: "Shapes in space", graphs_paths: "Paths", probability: "Chance", other: "Problem solving" } },
+      cat: { title: "Tutor Math matrix", who: "Qui practica?", level: "Nivell", start: "Comença", solution: "Ensenya'm la solució",
+        next: "Problema següent", skip: "Salta", progress: "El teu progrés", private: "Tot es queda en aquesta placa. No s'envia res a internet.",
+        legend: "Verd: resolt sol. Groc: resolt amb ajuda. Gris: encara no.", draw: "Escriu o dibuixa a la matriu de LEDs",
+        hint: (n) => `Necessito una pista (${n} de 3)`, noHints: "No hi ha més pistes", thinking: "La placa està pensant una pista…",
+        right: "Correcte! Molt bé.", rightHelp: "Correcte! Hi has arribat amb una mica d'ajuda.", wrong: "Aquesta no. Torna-ho a provar, o demana una pista.",
+        revealed: "Aquí tens la solució. El següent serà una mica més fàcil.", lvl: (n) => `Nivell ${n}`,
+        r1: "Pista 1 · Un problema semblant, ja resolt", r1easier: "Aquest és més fàcil. Pots fer servir la mateixa idea?",
+        r1same: "Mateix nivell, mateixa manera de pensar. Pots fer servir la mateixa idea?", r1none: "No hem trobat cap problema semblant.",
+        r1answer: "La seva resposta", r2: "Pista 2 · Quina mena de problema és?", r3: "Pista 3 · Una pista del model petit de la placa",
+        r3warn: "L'ha escrit un model petit en aquesta placa, i hem comprovat que no conté la resposta. Tot i així es pot equivocar: comprova-la.",
+        r3none: "El model no tenia cap pista segura per a aquest problema. Rellegeix la pista 2 i prova un exemple més petit.",
+        r4: "La solució", answer: "Resposta", confirm: "Vols veure la solució? Ja no podràs respondre aquest problema.",
+        topics: { arithmetic: "Aritmètica", number_theory: "Nombres i xifres", measurement_time: "Mesures, temps, diners", plane_geometry: "Geometria plana",
+          solid_geometry: "Cossos geomètrics", combinatorics: "Comptar casos", logic: "Lògica", grids_tables: "Quadrícules i taules", algebra: "Àlgebra",
+          sequences_patterns: "Patrons", spatial_visual: "Formes a l'espai", graphs_paths: "Camins", probability: "Probabilitat", other: "Resolució de problemes" } },
+    };
+    const $ = (id) => document.getElementById(id);
+    const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
+    let lang = "eng", state = null, timer = null;
+    try { lang = localStorage.getItem("lang") || lang; $("student").value = localStorage.getItem("student") || ""; } catch (e) {}
+    const t = () => T[lang] || T.eng;
+
+    for (let i = 0; i < 8 * 13; i++) $("matrix").append(document.createElement("i"));
+    for (let n = 0; n < 8; n++) $("level").append(new Option(String(n), n));
+    $("ui-lang").value = lang;
+
+    const api = async (path) => {
+      try { render(await (await fetch("/api/" + path)).json()); }
+      catch (e) { $("feedback").textContent = String(e); }
     };
 
-    // text
-    const textBox = document.querySelector("#text");
-    const sendText = () => {
-      const text = textBox.value.replace(/\//g, "-").trim();
-      if (text) call("/text/" + encodeURIComponent(text));
+    function example(box, h) {
+      if (!h.problem) { box.append(el("p", t().r1none)); return; }
+      const ex = el("div", null, "example");
+      ex.append(el("p", h.problem.text));
+      ex.append(el("p", `${t().r1answer}: ${h.answer}`, "small"));
+      if (h.explanation) ex.append(el("p", h.explanation, "small"));
+      box.append(ex, el("p", h.easier ? t().r1easier : t().r1same));
+    }
+
+    function render(s) {
+      if (s.error) { $("feedback").textContent = s.error; return; }
+      state = s;
+      document.documentElement.lang = lang === "cat" ? "ca" : "en";
+      document.querySelectorAll("[data-t]").forEach((e) => { e.textContent = t()[e.dataset.t]; });
+      [...$("matrix").children].forEach((dot, i) => {
+        const v = s.matrix[Math.floor(i / 13)][i % 13];
+        dot.style.background = v ? `rgba(255,59,48,${0.3 + 0.1 * v})` : "#2a2a2a";
+      });
+      const p = s.problem;
+      $("problem-card").hidden = !p;
+      if (!p) return;
+      const open = s.status === "open";
+      $("chip-level").textContent = t().lvl(p.level);
+      $("chip-topic").textContent = t().topics[p.topic] || p.topic;
+      $("chip-id").textContent = `Kangaroo ${p.year}`;
+      $("text").textContent = p.text;
+      $("options").replaceChildren(...Object.entries(p.options).map(([letter, value]) => {
+        const b = el("button");
+        b.append(el("b", letter), el("span", value));
+        const tried = s.tries.includes(letter);
+        if (tried || s.label) b.classList.add(letter === s.label ? "right" : tried ? "wrong" : "x");
+        b.disabled = !open || tried || s.busy;
+        b.onclick = () => api("answer/" + letter);
+        return b;
+      }));
+      const fb = $("feedback");
+      const lastTry = s.tries[s.tries.length - 1];
+      fb.className = s.status === "solved" ? "good" : (open && lastTry) || s.status === "revealed" ? "bad" : "";
+      fb.textContent = s.status === "solved" ? (s.last === "alone" ? t().right : t().rightHelp)
+        : s.status === "revealed" ? t().revealed : s.busy ? t().thinking : lastTry ? t().wrong : "";
+
+      $("ladder").replaceChildren(...s.hints.map((h) => {
+        const box = el("div", null, "rung");
+        if (h.kind === "example") { box.append(el("h3", t().r1)); example(box, h); }
+        if (h.kind === "method") box.append(el("h3", t().r2), el("p", h.topic + ". " + h.text));
+        if (h.kind === "hint") {
+          box.append(el("h3", t().r3));
+          if (h.source === "pending") box.append(el("p", t().thinking));
+          else if (h.text) box.append(el("p", h.text), el("p", t().r3warn, "small"));
+          else box.append(el("p", t().r3none));
+        }
+        if (h.kind === "solution") {
+          box.append(el("h3", t().r4), el("p", `${t().answer}: ${h.label}) ${h.answer}`));
+          if (h.explanation) box.append(el("p", h.explanation));
+        }
+        return box;
+      }));
+      const climbed = s.hints.filter((h) => h.rung <= 3).length;
+      $("hint").textContent = climbed < 3 ? t().hint(climbed + 1) : t().noHints;
+      $("hint").disabled = !open || s.busy || climbed >= 3;
+      $("hint").hidden = !open;
+      $("solution").hidden = !open || climbed < 3 || s.busy;
+      $("next").hidden = open;
+      $("skip").hidden = !open;
+
+      const prof = s.profile || { topics: {} };
+      $("profile-card").hidden = !prof.attempts;
+      $("profile").replaceChildren(...Object.entries(prof.topics).map(([topic, c]) => {
+        const row = el("div", null, "topic"), bar = el("div", null, "bar");
+        const total = c.alone + c.helped + c.not_yet;
+        for (const k of ["alone", "helped", "not_yet"]) { const part = el("span"); part.style.width = (100 * c[k] / total) + "%"; bar.append(part); }
+        row.append(el("label", t().topics[topic] || topic), bar, el("span", `${c.alone + c.helped}/${total}`));
+        return row;
+      }));
+
+      clearTimeout(timer);
+      if (s.busy) timer = setTimeout(() => api("state"), 1000);
+    }
+
+    $("start").onclick = () => {
+      const name = ($("student").value.trim().replace(/[^\w-]/g, "") || "student").slice(0, 24);
+      try { localStorage.setItem("student", name); } catch (e) {}
+      api(`start/${encodeURIComponent(name)}/${lang}/${$("level").value}`);
     };
-    document.querySelector("#send-text").onclick = sendText;
-    textBox.addEventListener("keydown", (e) => { if (e.key === "Enter") sendText(); });
-
-    // pixel grid: 8 rows x 13 columns, click or drag to paint
-    const grid = document.querySelector("#grid");
-    const cells = [];
-    let painting = null;
-    for (let i = 0; i < 8 * 13; i++) {
-      const cell = document.createElement("div");
-      cell.className = "px";
-      cell.onmousedown = () => { painting = !cell.classList.contains("on"); cell.classList.toggle("on", painting); };
-      cell.onmouseenter = () => { if (painting !== null) cell.classList.toggle("on", painting); };
-      grid.append(cell);
-      cells.push(cell);
-    }
-    document.addEventListener("mouseup", () => { painting = null; });
-    document.querySelector("#send-pixels").onclick = () =>
-      call("/pixels/" + cells.map((c) => (c.classList.contains("on") ? "1" : "0")).join(""));
-    document.querySelector("#clear").onclick = () => cells.forEach((c) => c.classList.remove("on"));
-    document.querySelector("#invert").onclick = () => cells.forEach((c) => c.classList.toggle("on"));
-
-    // answer buttons
-    for (const letter of "ABCDE") {
-      const button = document.createElement("button");
-      button.textContent = letter;
-      button.onclick = () => call("/answer/" + letter);
-      document.querySelector("#letters").append(button);
-    }
-
-    setInterval(async () => {
-      const state = await (await fetch("/status")).json();
-      if (!state.busy) status.textContent = state.message;
-    }, 1000);
+    $("hint").onclick = () => api("hint");
+    $("solution").onclick = () => { if (confirm(t().confirm)) api("solution"); };
+    $("next").onclick = $("skip").onclick = () => api("next");
+    $("ui-lang").onchange = (e) => {
+      lang = e.target.value;
+      try { localStorage.setItem("lang", lang); } catch (err) {}
+      if (state) render(state);  // the problem itself changes language at the next Start
+      else document.querySelectorAll("[data-t]").forEach((x) => { x.textContent = t()[x.dataset.t]; });
+    };
+    api("state");
   </script>
 </body>
 </html>
