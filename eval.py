@@ -15,14 +15,13 @@ import csv
 import json
 import os
 import random
-import re
 import statistics
 import subprocess
-import sys
 import time
 from collections import Counter, defaultdict
 
 from copilot.config import CONFIG
+from copilot.options import add_cascade_arguments, build_ctx
 from copilot.pipeline import TIME_LIMIT, solve
 
 LETTERS = "ABCDE"
@@ -45,39 +44,6 @@ def table(title, groups):
         hits = groups[key]
         label = str(key) if str(key) else "(none)"
         print(f"  {label:18} {sum(hits):4}/{len(hits):<4} {100 * sum(hits) / len(hits):5.1f}%")
-
-
-def mode_type(value):
-    if not re.fullmatch(r"direct|reason:\d+", value):
-        raise argparse.ArgumentTypeError("use direct or reason:<tokens>, e.g. reason:128")
-    return value
-
-
-def add_cascade_arguments(p):
-    p.add_argument("--no-llm", action="store_true", help="never call the model: answer the prior")
-    p.add_argument("--twins", action="store_true", help="look for a solved twin in the bank first")
-    p.add_argument("--bank", default="", help="solved problems for --twins (default: train.jsonl next to --input)")
-    p.add_argument("--calib", default="", metavar="PATH", help="calibration file, results/calib-<model>.json")
-    p.add_argument("--mode", type=mode_type, default="direct", help="direct or reason:<tokens>")
-
-
-def build_ctx(args):
-    """The run options that solve() gets with every problem. Built once."""
-    ctx = {"twins": None, "calib": None, "no_llm": args.no_llm, "mode": args.mode}
-    if args.calib:
-        with open(args.calib, encoding="utf-8") as f:
-            ctx["calib"] = json.load(f)
-    if args.twins:
-        try:
-            from copilot.twins import TwinIndex
-        except ImportError:
-            sys.exit("--twins needs copilot/twins.py, which this pipeline doesn't have yet.")
-        bank = args.bank or os.path.join(os.path.dirname(args.input) or ".", "train.jsonl")
-        if not os.path.exists(bank):
-            sys.exit(f"{bank} not found. Pass the solved problems with --bank.")
-        with open(bank, encoding="utf-8") as f:
-            ctx["twins"] = TwinIndex([json.loads(line) for line in f if line.strip()])
-    return ctx
 
 
 def cell(value):
@@ -113,7 +79,8 @@ def main():
     if args.rag:
         from copilot.rag import Index
         index = Index(args.index)
-    ctx = build_ctx(args)
+    # while evaluating, the twin bank is the training split next to the input: never validation ids
+    ctx = build_ctx(args, default_bank=os.path.join(os.path.dirname(args.input) or ".", "train.jsonl"))
 
     os.makedirs("results", exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
