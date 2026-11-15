@@ -10,8 +10,8 @@ The answer comes from, in this order:
   code    the code printed a value equal to exactly one option (the model ran out of tokens)
   forced  "The answer is \\boxed{" is added and the model writes one letter
 
-With a deadline, every call is sized so the problem fits in time: how many tokens the model
-may still write comes from the speeds measured on the previous calls.
+With a deadline, the model writes in short pieces, each sized from the speeds measured on the
+previous ones, and it answers from what it has written when time comes near.
 
 Standard library only: this runs on the board.
 """
@@ -29,8 +29,8 @@ from .llm import format_problem
 LETTERS = "ABCDE"
 URL = f"http://127.0.0.1:{CONFIG.get('CODE_PORT', '8091')}"
 MAX_TOKENS = int(CONFIG.get("CODE_MAX_TOKENS", "200"))
-READ_TPS = float(CONFIG.get("CODE_READ_TPS", "6.0"))     # starting guesses; measured on every call
-WRITE_TPS = float(CONFIG.get("CODE_WRITE_TPS", "3.5"))
+READ_TPS = float(CONFIG.get("CODE_READ_TPS", "4.0"))     # starting guesses; measured on every call
+WRITE_TPS = float(CONFIG.get("CODE_WRITE_TPS", "2.5"))
 FORCE = "\n\nThe answer is \\boxed{"
 STOP = "```output"
 # Qwen2.5-Math's own instruction for tool-integrated reasoning, plus "be brief".
@@ -55,6 +55,10 @@ EXAMPLES = [
 CODE = re.compile(r"```python\s*\n(.*?)```", re.S)
 BOXED = re.compile(r"\\boxed\{((?:[^{}]|\{[^{}]*\})*)\}")
 CHARS_PER_TOKEN = 3.6
+CHUNK = 24             # tokens written per call: a cut-off call loses only this much
+FIRST_CHUNK = 8        # the first call also reads the problem, the slow part on the board
+CALL_OVERHEAD_S = 0.7  # each call re-reads its few new tokens and has a little HTTP overhead
+RESERVE_S = 5.0        # kept at the end for the final answer
 
 # --- options as numbers ----------------------------------------------------------------
 
@@ -172,42 +176,63 @@ def complete(url, prompt, n, stop=None, grammar=None, timeout=900, speeds=None, 
 
 
 def solve(url, problem, budget=MAX_TOKENS, max_rounds=3, run_timeout=3.0, deadline=None, speeds=None,
-          reserve=4.0):
-    """Solve one problem. deadline (a time.time() value) caps the total time; reserve is kept
-    for the final forced answer. Returns {"letter", "source", "code_letter", "rounds",
-    "code_errors", "looped", "gen_tokens", "prompt_tokens", "text"}."""
+          reserve=RESERVE_S):
+    """Solve one problem. Returns {"letter", "source", "code_letter", "rounds", "code_errors",
+    "looped", "gen_tokens", "prompt_tokens", "text"}.
+
+    The model writes in short pieces (CHUNK tokens per call). After each piece the measured
+    speeds size the next one, and when the deadline (a time.time() value) comes near, it stops
+    and answers from what it has written so far: the last `reserve` seconds are kept for that.
+    A call that is cut off loses only its own piece. The prompt cache makes each new piece
+    cost only its new tokens to read."""
     url = url.rstrip("/")
     values = numeric_options(problem)
     speeds = speeds or Speeds()
     prompt = post(url + "/apply-template", {"messages": messages_for(problem)}, timeout=60)["prompt"]
     text, used, rounds, read, outputs, first = "", 0, 0, None, [], True
     while used < budget:
-        allowed = budget - used
+        want = budget - used  # without a deadline (laptop experiments): one call, as before
         if deadline is not None:
+            want = min(want, FIRST_CHUNK if first else CHUNK)
             left = deadline - time.time() - reserve
-            if first:  # the first call also reads the problem
-                left -= (len(format_problem(problem)) / CHARS_PER_TOKEN + 10) / speeds.read
-            allowed = min(allowed, int(left * speeds.write))
-            if allowed < 8:
+            reading = ((len(format_problem(problem)) / CHARS_PER_TOKEN + 10) / speeds.read
+                       if first else CALL_OVERHEAD_S)
+            want = min(want, int((left - reading) * speeds.write))
+            if want < 4:
                 break
-        timeout = 900 if deadline is None else max(5.0, deadline - time.time())
-        out, n, stop_type, prompt_n = complete(url, prompt + text, allowed, stop=[STOP],
-                                               timeout=timeout, speeds=speeds)
+            timeout = max(2.0, deadline - time.time() - reserve / 2)
+        else:
+            timeout = 900
+        try:
+            out, n, stop_type, prompt_n = complete(url, prompt + text, want, stop=[STOP],
+                                                   timeout=timeout, speeds=speeds)
+        except Exception:
+            if deadline is None:
+                raise
+            break  # out of time on this piece: answer from what is written so far
         first = False
         read = prompt_n if read is None else read
-        text += out
+        # "```output" may be split over two pieces, so the stop word is looked for here too
+        cut = (text + out).find(STOP, max(0, len(text) - len(STOP) + 1))
+        if cut >= 0:
+            text, stop_type = (text + out)[:cut], "word"
+        else:
+            text += out
         used += n
         if looped(text) or boxed_answer(text, values)[1] is not None:
             break
-        blocks = CODE.findall(text)
-        if stop_type == "word" and blocks and rounds < max_rounds:
+        if stop_type == "word":
+            blocks = CODE.findall(text)
+            if not blocks or rounds >= max_rounds:
+                break
             printed, error = sandbox.run(blocks[-1], timeout=run_timeout)
             shown = ((printed or "") + ("\n" + error if error else "")).strip()[-200:]
             outputs.append({"printed": printed, "error": error})
             text += STOP + "\n" + (shown or "(nothing was printed)") + "\n```\n"
             rounds += 1
             continue
-        break  # end of text, budget used, or a code block we won't run
+        if stop_type == "eos" or n == 0:
+            break  # the model has finished, without a \boxed{}
 
     letter, _ = boxed_answer(text, values)
     source = "boxed" if letter else ""
@@ -221,7 +246,7 @@ def solve(url, problem, budget=MAX_TOKENS, max_rounds=3, run_timeout=3.0, deadli
     if not letter and code_letter:
         letter, source = code_letter, "code"
     if not letter:
-        timeout = 60 if deadline is None else max(3.0, deadline - time.time() + reserve)
+        timeout = 60 if deadline is None else max(2.0, deadline - time.time())
         forced, _, _, _ = complete(url, prompt + text + FORCE, 1, grammar="root ::= [A-E]",
                                    timeout=timeout, speeds=speeds)
         letter, source = forced.strip()[:1], "forced"
