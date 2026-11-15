@@ -18,7 +18,7 @@ challenge:
 | | Result |
 | --- | --- |
 | Reasoning, 100 practice rows (new problems, English and Catalan) | **37%**, against 21% for the baseline model and 20% for guessing |
-| Reasoning, 20-problem mock exam on the board, Wi-Fi off | 11 of 20, mean 31.9 s, worst 52.0 s |
+| Reasoning, 20-problem mock exam on the board, Wi-Fi off | 11 of 20, mean 32.1 s, worst 52.0 s |
 | Teaching, hints shown that leak the answer | 0 of 873 |
 | Teaching, time to show a stored hint | under 1 ms |
 
@@ -56,13 +56,22 @@ answer value, points at an option, or does the calculation. Only hints that pass
 **The next problem follows the student.** Solved alone: a neighbour one level up. Solved with help: the
 same level. Not solved: the same topic, one level down.
 
-**It is a game.** Three ways to play:
+**It is a game.** Four ways to play:
 
 | Game | Rules |
 | --- | --- |
 | Free practice | No end. The level follows the student. |
 | Round of 5 | Five problems, then a summary with up to three stars per problem. |
 | The climb | Three lives. A wrong answer, a skip or asking for the solution costs one. A hint costs none. |
+| Teach Kanga | Learning by teaching. The student explains the problem to Kanga, a classmate who can't solve it. The answer buttons open only when Kanga understands. |
+
+**Teach Kanga** turns the roles round. The student writes how they would solve the problem, and Kanga
+asks one question about the step that is missing, unclear or wrong. Code, not the model, decides whether
+the explanation is good enough: it reads the student's result, works out every calculation they wrote
+("Wait, is 9 + 17 really 25?"), and checks the key steps. The 0.8B model only words Kanga's question,
+under a grammar that allows no numbers but those of the problem or the student, and it is never told the
+answer. For problems with a hand-written script (the question to ask for each wrong option and each
+step), the model is not called at all. Details in [app/math-matrix/README.md](app/math-matrix/README.md).
 
 The points reward thinking over guessing: 100 for a solved problem, minus 15 per hint and 25 per wrong
 answer, plus a bonus for the level and for problems solved in a row. A hint is cheaper than a wrong
@@ -87,8 +96,15 @@ For each problem, `copilot/pipeline.py` runs the cheapest stage first:
 0. **A lookup in the bank of solved problems** (`copilot/twins.py`), with no model. If the same problem
    is in the bank, in either language, its answer value is carried over to the matching option. It
    answers only on a near-exact match, so a new problem goes on to the next stages. The bank is every
-   `.jsonl` file in `data/bank/` on the board: M3Kang, the practice file and the Cangur 2026 papers.
-   None of it is in this repository.
+   `.jsonl` file in `data/bank/` on the board, 3,798 solved rows: M3Kang (Kangaroo papers from 2007 to
+   2024), the organizers' practice file, and 102 of the 227 questions of the Cangur 2026 papers (a
+   random 45%: the team removed the other 125). None of it is in this repository.
+
+   The code model then gives a second opinion on the looked-up answer (`coder.check()`). If it says
+   no, the problem goes on to the next stages. This is not a proof: asked about the 100 practice
+   problems, the model said yes to 52 right answers and to 51 wrong ones. `--no-check-lookup` switches
+   the check off, and `--no-twins` switches the whole lookup off. See [The lookup](#the-lookup) for
+   what it does to the scores.
 1. **A prior over the five options**, with no model: the median value for numbers, the most central
    string for text. It is always ready, so there is always an answer.
 2. **The code stage** (`copilot/coder.py`). Qwen3.5 2B writes a Python program of at most 10 lines. The
@@ -176,12 +192,32 @@ figure):
 | Measure | Value |
 | --- | --- |
 | Correct | 11 of 20 |
-| Mean time per problem | 31.9 s |
+| Mean time per problem | 32.1 s |
 | Worst time | 52.0 s |
 | Over 60 s | 0 |
-| Start-up, once (the server reads the system prompt) | 17.9 s |
+| Start-up, once (the server reads the system prompt) | 18.0 s |
+| Start-up, once (the lookup builds its index of 4,048 solved problems; the bank now has 3,798) | 11.4 s |
+| A lookup, per problem | 0.1 to 0.2 s |
 
 Twenty problems is a small sample: the 100-row number is the one to trust.
+
+#### The lookup
+
+The 37% above is the solver on problems that are **not** in the bank: the practice file was taken out
+of the bank for that run, and the lookup answered none of the 100. That is the number to compare with
+the baseline. When a problem *is* in the bank, the lookup answers it, so these scores measure the
+bank, not the reasoning:
+
+| Test, on a laptop | Right | Answered by the lookup |
+| --- | --- | --- |
+| Practice rows, practice file in the bank, check off | 100 of 100 | 100 |
+| Practice rows, practice file in the bank, check on | 92 of 100 | 91 |
+| Cangur 2026, all 454 rows, 45% of its questions in the bank, check on | 315 of 454 (69%) | 255 |
+
+On the Cangur rows, questions kept in the bank score 195 of 204, and questions taken out score 120 of
+250: Kangaroo reuses questions between neighbouring levels, so 51 of those rows were still found
+through a copy. The check costs points: it rejected 9 right answers on the practice rows, and the code
+stage recovered 1.
 
 On M3Kang validation (562 rows, English and Catalan), where we tried the letter-picking ideas:
 
@@ -277,8 +313,10 @@ C: the copilot answered C on 58 of 100 rows, when each letter was right 20 times
 - **Solved examples in the prompt.** 23.0% on M3Kang validation, below the 25.3% without them.
 - **Fine-tuning the 0.8B to pick letters.** 25.1% against 25.3%.
 - **Looking the problem up as a way to score.** The lookup answers a problem that is already in the
-  bank, and nothing else: on the 100 practice rows, which are new problems, it answered none. It is on
-  by default as a safety net, not as a source of points.
+  bank, and nothing else: on the 100 practice rows, with the practice file out of the bank, it answered
+  none. It is on by default as a safety net, not as a source of points.
+- **Letting the model check the lookup.** The 2B cannot tell a right proposed answer from a wrong one
+  (52 "yes" against 51). The check is in the pipeline as a second opinion, and it only costs points.
 - **Letting the model guard the hints.** It wrote the answer value into 21 hints and did the
   calculation in 201. The check had to be code.
 
@@ -360,7 +398,7 @@ arduino-app-cli app start user:math-matrix
 Open `http://<board-ip>:7000`. Over USB, run `adb forward tcp:7000 tcp:7000` on the laptop and open
 `http://127.0.0.1:7000`.
 
-**Check:** the start page shows three games, and the LED matrix shows `L` and the level when a problem
+**Check:** the start page shows four games, and the LED matrix shows `L` and the level when a problem
 starts.
 
 ### 3. Measure it
