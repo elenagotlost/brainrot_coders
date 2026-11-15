@@ -21,6 +21,11 @@ What is decided where, so that a small model on a slow board can do it:
                            (reply_problem()). If it fails, or the model is slow or down, a fixed
                            question for that case is used: the mode works with no model at all.
 
+With a script (laptop/load_kanga_bank.py), everything Kanga says comes from code and from the
+script: a question aimed at the mistake behind each wrong option, and questions that lead to each
+key step of the solution, in order. The model is not called at all. Teach Kanga then serves only
+the problems that have a script.
+
 Measured on a laptop with the board's 0.8B: told the answer, it writes it into its reply at once
 ("which leads to the answer C) 4"), and it could not write usable notes for 2 of 2 problems even
 when told the answer. Hence the model only asks; code judges.
@@ -265,7 +270,14 @@ def _plain(text):
     return re.sub(r"\W+", " ", (text or "").lower()).strip()
 
 
-def analyse(problem, explanations, notes=""):
+def steps_done(script, text):
+    """The indexes of the script's steps whose numbers appear in the text."""
+    have = number_set(text)
+    return [i for i, step in enumerate(script.get("steps") or [])
+            if {_norm(n) for n in step.get("needs") or []} & have]
+
+
+def analyse(problem, explanations, notes="", script=None):
     """What the student's explanation so far still lacks. Returns a dict with "status":
 
       repeat     the latest message is one the student already sent
@@ -284,7 +296,9 @@ def analyse(problem, explanations, notes=""):
     Only the latest message decides what it ends on: an earlier result counts only when it was
     the right one (the latest message then answers a question about it). Never asks the model.
     After the student has explained twice, a right answer that is long enough is accepted even if
-    it took another path than the notes: there is more than one way to solve a problem."""
+    it took another path than the notes: there is more than one way to solve a problem.
+    With a script, a right answer convinces Kanga once the student has gone through all of the
+    script's key steps but one (at least one), or after three explanations."""
     label = problem.get("label")
     latest = explanations[-1] if explanations else ""
     everything = "\n".join(explanations)
@@ -292,6 +306,8 @@ def analyse(problem, explanations, notes=""):
     covered = keys & number_set(everything)
     out = {"words": words(everything), "keys": len(keys), "covered": len(covered),
            "explanations": len(explanations), "conclusion": None}
+    if script:
+        out["steps_done"] = steps_done(script, everything)
     if _plain(latest) and _plain(latest) in [_plain(text) for text in explanations[:-1]]:
         out["status"] = "repeat"
         return out
@@ -321,6 +337,12 @@ def analyse(problem, explanations, notes=""):
     elif letter == OFF and found.get("how") == "sum":
         out["status"], out["said"] = "step", value  # "10 + 8 = 18 of those": a step on the way
         return out
+    step_numbers = {_norm(n) for step in (script or {}).get("steps") or [] for n in step.get("needs") or []}
+    if script and value and letter == OFF and found.get("how") != "named" and _norm(str(value)) in step_numbers:
+        # "the half is 13": a key step of the script, not an answer. A step that is also an option
+        # ("he gives 8") stays a wrong answer: the script's question for that option is written for it.
+        out["status"], out["said"] = "step", value
+        return out
     out["conclusion"] = letter
     if letter == OFF:
         out["status"], out["said"] = "off", value
@@ -331,6 +353,9 @@ def analyse(problem, explanations, notes=""):
             out["status"] = "method"
         else:
             out["status"] = "short" if out["words"] < MIN_WORDS else "no_answer"
+    elif script:
+        need = max(1, len(script.get("steps") or []) - 1)
+        out["status"] = "convinced" if len(out["steps_done"]) >= need or len(explanations) >= 3 else "gap"
     elif out["words"] < MIN_WORDS:
         out["status"] = "short"
     elif len(explanations) < 2 and keys and not covered:
@@ -535,15 +560,53 @@ def reply_problem(reply, problem, said, lang="eng"):
 FIXED = ("convinced", "repeat", "slip", "compute", "off", "method", "step")
 
 
-def kanga_reply(problem, lang, chat, analysis, llm, timeout=55, help_text=""):
+# The first sentence of a scripted reply: what code found, before the script's question
+SCRIPT_OPEN = {
+    "eng": {"wrong": "Hmm, you get {said}.", "off": "You get {said}, but that isn't one of the options.",
+            "step": "Okay, so that gives {said}.", "method": "I think I see what you want to do.",
+            "repeat": "You said that already.", "gap": "I'm not sure I follow how you got there.",
+            "no_answer": "Okay.", "short": "", "check": ""},
+    "cat": {"wrong": "Mmm, et surt {said}.", "off": "Et surt {said}, però no és cap de les opcions.",
+            "step": "D'acord, així que surt {said}.", "method": "Crec que veig què vols fer.",
+            "repeat": "Això ja ho has dit.", "gap": "No sé si entenc com hi has arribat.",
+            "no_answer": "D'acord.", "short": "", "check": ""},
+}
+
+
+def script_reply(problem, lang, chat, analysis, script):
+    """Kanga's reply from the problem's script. Returns (reply, source)."""
+    status = analysis["status"]
+    asked = [turn["text"] for turn in chat if turn["who"] == "tutor"]
+    values = {"said": analysis.get("said") or "", "expr": analysis.get("expr") or "",
+              "stated": analysis.get("stated") or ""}
+    if status in ("convinced", "slip", "compute"):  # code knows exactly what to say
+        return say(lang, status, avoid=asked, **values), "fixed"
+    questions = []
+    wrong = (script.get("wrong") or {}).get(analysis.get("conclusion") or "")
+    if status == "wrong" and wrong:
+        questions.append(wrong.get(lang) or wrong.get("eng"))   # aimed at this option's mistake
+    steps = script.get("steps") or []
+    done = set(analysis.get("steps_done") or [])
+    questions += [steps[i].get(lang) or steps[i].get("eng") for i in range(len(steps)) if i not in done]
+    question = next((q for q in questions if q and not any(q in line for line in asked)), None)
+    if question is None:
+        return say(lang, status if status in SAY["eng"] else "stuck", avoid=asked, **values), "fixed"
+    opener = (SCRIPT_OPEN.get(lang) or SCRIPT_OPEN["eng"]).get(status, "").format(**values)
+    return (opener + " " + question).strip(), "script"
+
+
+def kanga_reply(problem, lang, chat, analysis, llm, timeout=55, help_text="", script=None):
     """Kanga's reply for this turn. chat is [{"who": "student" | "tutor", "text"}], the student's
     latest message last. help_text is a method for this kind of problem: when the student is
     stuck, Kanga passes it on ("My teacher once told me: ..."). Returns (reply, source): source
-    is "model", "fixed" or "fixed: <why>"."""
-    reply, source = _kanga_line(problem, lang, chat, analysis, llm, timeout)
+    is "script", "model", "fixed" or "fixed: <why>". With a script the model is not called."""
+    if script:
+        reply, source = script_reply(problem, lang, chat, analysis, script)
+    else:
+        reply, source = _kanga_line(problem, lang, chat, analysis, llm, timeout)
     status, n = analysis["status"], analysis.get("explanations", 0)
-    if status not in ("convinced", "slip", "compute"):  # stuck: more help, one step at a time
-        if n == 3 and help_text:
+    if status in ("wrong", "off", "repeat", "short", "no_answer", "method"):  # stuck: more help, step by step
+        if n == 3 and help_text and not script:  # a script already leads step by step
             reply += " " + say(lang, "teacher", text=help_text)
         elif n >= 4 and n % 2 == 0:
             reply += " " + say(lang, "showhow")

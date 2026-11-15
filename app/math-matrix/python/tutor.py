@@ -259,6 +259,10 @@ class Bank:
         self.hints = {(pid, lang): hint for pid, lang, hint in db.execute("SELECT id, lang, hint FROM hints")}
         self.explanations = {(pid, lang): text for pid, lang, text in
                              db.execute("SELECT id, lang, text FROM explanations")}
+        try:  # Teach Kanga's scripts (laptop/load_kanga_bank.py); an older bank has none
+            self.scripts = {pid: json.loads(script) for pid, script in db.execute("SELECT id, script FROM kanga")}
+        except sqlite3.Error:
+            self.scripts = {}
         db.close()
         self.languages = sorted({lang for _pid, lang in self.problems})
 
@@ -288,18 +292,20 @@ class Bank:
         return example, {"score": round(score, 3), "easier": example["level"] < level,
                          "same_topic": example["topic"] == topic}
 
-    def pick(self, lang, level, topic=None, near=None, seen=(), stay_on_topic=False, rng=random):
-        """The next problem: at `level`, close to problem id `near` on the map, on `topic` if it can be."""
+    def pick(self, lang, level, topic=None, near=None, seen=(), stay_on_topic=False, rng=random, allowed=None):
+        """The next problem: at `level`, close to problem id `near` on the map, on `topic` if it can be.
+        allowed, when given, is the set of ids it may choose from (Teach Kanga: the scripted ones)."""
         level = max(0, min(7, level))
         seen = set(seen)
-        pool = [p for p in self.of(lang) if p["id"] not in seen]
+        everything = [p for p in self.of(lang) if not allowed or p["id"] in allowed]
+        pool = [p for p in everything if p["id"] not in seen]
         if not pool:
-            pool = self.of(lang)
+            pool = everything
         if near:
             for _score, other in self.neighbours.get(near, []):
                 p = self.get(other, lang)
                 if p and p["id"] not in seen and p["level"] == level and _score < TWIN_CAP \
-                        and (p["topic"] == topic or not stay_on_topic):
+                        and (not allowed or p["id"] in allowed) and (p["topic"] == topic or not stay_on_topic):
                     return p, "neighbour"
         on_topic = [p for p in pool if p["topic"] == topic]
         at_level = [p for p in on_topic if p["level"] == level]
@@ -441,6 +447,12 @@ class Tutor:
         except Exception:
             pass  # the matrix must never break the lesson
 
+    def _allowed(self):
+        """Teach Kanga serves only the problems that have a script, when there are scripts."""
+        if self.mode == "teach" and self.bank.scripts:
+            return set(self.bank.scripts)
+        return None
+
     def _helped(self):
         """How much help this problem took, counted like hints for the points: in the teach mode,
         every explanation after the first one."""
@@ -487,18 +499,20 @@ class Tutor:
         if self.mode == "teach":
             self.teach = {"chat": [{"who": "tutor", "text": teachback.say(self.lang, "intro"), "source": "fixed"}],
                           "explanations": [], "status": "start", "convinced": False, "notes": "",
-                          "notes_source": "", "ready": threading.Event()}
+                          "notes_source": "", "ready": threading.Event(),
+                          "script": self.bank.scripts.get(problem["id"])}
             threading.Thread(target=self._prepare, args=(problem, self.teach), daemon=True).start()
         self._draw("L")
 
     # -- the teach mode: Kanga's notes are prepared while the student reads
     def _prepare(self, problem, teach):
         notes = self.bank.explanations.get((problem["id"], self.lang), "")
-        source = "bank" if notes else "none"
-        try:  # the problem, in the server's cache before the student writes
-            teachback.warm(problem, self.lang, self.llm)
-        except Exception:
-            pass
+        source = "script" if teach["script"] else "bank" if notes else "none"
+        if not teach["script"]:  # a scripted problem never calls the model
+            try:  # the problem, in the server's cache before the student writes
+                teachback.warm(problem, self.lang, self.llm)
+            except Exception:
+                pass
         with self.lock:
             teach["notes"], teach["notes_source"] = notes, source
         teach["ready"].set()
@@ -523,10 +537,11 @@ class Tutor:
         teach["ready"].wait(teachback.NOTES_WAIT_S)
         with self.lock:
             chat, notes, lang = [dict(turn) for turn in teach["chat"]], teach["notes"], self.lang
-        analysis = teachback.analyse(problem, teach["explanations"], notes)
+        analysis = teachback.analyse(problem, teach["explanations"], notes, script=teach["script"])
         try:
             reply, source = teachback.kanga_reply(problem, lang, chat, analysis, self.llm,
-                                                  help_text=method(problem.get("topic"), lang)[1])
+                                                  help_text=method(problem.get("topic"), lang)[1],
+                                                  script=teach["script"])
         except Exception as error:  # Kanga must never break the lesson
             reply, source = teachback.say(lang, "stuck"), f"fixed: {type(error).__name__}"
         with self.lock:
@@ -550,7 +565,8 @@ class Tutor:
             self.mode = mode if mode in MODES else "train"
             self.points, self.lives, self.results, self.over, self.top_level = 0, LIVES, [], False, self.level
             self.streak, self.best_streak = self.history.streaks(self.student)
-            problem, how = self.bank.pick(self.lang, self.level, seen=self.seen, rng=self.rng)
+            problem, how = self.bank.pick(self.lang, self.level, seen=self.seen, rng=self.rng,
+                                          allowed=self._allowed())
             self._set_problem(problem, how)
             return self.state()
 
@@ -658,9 +674,12 @@ class Tutor:
             if not teaching and len(self.hints) < 3:
                 return self.state()  # the ladder is climbed one rung at a time
             problem = self.problem
+            explanation = self.bank.explanations.get((problem["id"], self.lang), "")
+            script = self.bank.scripts.get(problem["id"]) or {}
+            if not explanation and script:
+                explanation = (script.get("solution") or {}).get(self.lang, "")
             self.hints.append({"rung": 4, "kind": "solution", "label": problem["label"],
-                               "answer": problem["options"][problem["label"]],
-                               "explanation": self.bank.explanations.get((problem["id"], self.lang), "")})
+                               "answer": problem["options"][problem["label"]], "explanation": explanation})
             self.status = "revealed"
             if self.mode == "climb":
                 self.lives -= 1
@@ -684,7 +703,8 @@ class Tutor:
             self.level = max(0, min(7, self.level + step))
             problem, how = self.bank.pick(self.lang, self.level, topic=self.problem["topic"],
                                           near=self.problem["id"], seen=self.seen,
-                                          stay_on_topic=self.last == "not_yet", rng=self.rng)
+                                          stay_on_topic=self.last == "not_yet", rng=self.rng,
+                                          allowed=self._allowed())
             self._set_problem(problem, how)
             return self.state()
 

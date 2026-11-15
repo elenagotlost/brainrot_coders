@@ -47,6 +47,31 @@ answers it, adds a step or fixes one, until Kanga says "Now I get it". Then they
 | Kanga's question | the 0.8B, about 20 tokens, under a grammar: one question, no numbers but those of the problem or the student | a few seconds |
 | Check the question: no answer, in figures or in words, and no letter | code; if it fails, a fixed question for that case | none |
 
+**Scripted problems.** Kanga is most useful with a script per problem, written ahead of time and
+stored in `teach.db`. For now it's 15 easy problems (levels 0 to 2), written and checked by hand, in English
+and Catalan. When there are scripts, Teach Kanga serves only those problems, and the model is not called at all.
+A script holds:
+
+- for each wrong option, one question aimed at the mistake behind it. For the balls problem, 11 comes from
+  counting the black balls, so: "There are 11 black balls, yes. But what if the first balls you take are all
+  red or blue?"
+- the key steps of a solution, in order, each with the numbers that show the student has done it
+  ("18": all the red and blue balls). Kanga asks about the first step not done yet. A right answer convinces
+  Kanga once the student has done all of the steps but one, or after three explanations.
+- the worked solution, for "Show me how".
+
+`laptop/load_kanga_bank.py` checks every script against the bank and refuses any whose questions name a letter
+or use a number that isn't in the problem (except, for a wrong option, that option's own value). That rule
+keeps the questions from giving away the answer or a step's result. The scripts are derived from M3Kang, so
+they live in `data/kanga_bank.json` and `teach.db`, both outside Git. Scaling up means writing more scripts,
+by hand or with a large model on a laptop, and letting the same checks filter them.
+
+```bash
+python3 laptop/load_kanga_bank.py
+```
+
+Without scripts, the mode falls back to the model's questions, described below.
+
 The model is never told the answer: told it, the 0.8B wrote it into its reply at once. It can't judge an
 explanation either, so code does. With no model at all the mode still works, with fixed questions. After
 two explanations the student can ask "Show me how", which reveals the solution and counts as not solved.

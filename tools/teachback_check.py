@@ -128,6 +128,32 @@ def main():
     reply, _ = kanga_reply(CANDY, "eng", slip_chat, analyse(CANDY, ["9 + 17 = 25"], ""), DOWN, timeout=1)
     assert "9 + 17" in reply and "25" in reply, reply
 
+    # a scripted problem: Kanga's questions come from the script, and the model is never called
+    script = {"id": "made-up-2", "answer": "C",
+              "steps": [{"needs": ["26", "8"], "eng": "How many candies do they have together?"},
+                        {"needs": ["13"], "eng": "How many should each one end up with?"}],
+              "wrong": {"E": {"eng": "8 is how many more Tom has. If he gives all 8, who has more then?"}},
+              "solution": {"eng": "9 + 17 = 26, half is 13, 17 - 13 = 4."}}
+    chat = [{"who": "tutor", "text": "intro"}]
+    for text, expect in [("he gives 8 because 17 - 9 = 8", "8 is how many more"),
+                         ("together they have 26 and the half is 13", "Okay, so that gives 13"),
+                         ("17 - 13 = 4", "Now I get it")]:
+        chat.append({"who": "student", "text": text})
+        analysis = analyse(CANDY, [t["text"] for t in chat if t["who"] == "student"], "", script=script)
+        reply, source = kanga_reply(CANDY, "eng", chat, analysis, DOWN, timeout=1, script=script)
+        assert expect in reply and source in ("script", "fixed"), (text, reply, source)
+        chat.append({"who": "tutor", "text": reply})
+
+    # the loader refuses a script whose questions give the answer away
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "laptop"))
+    from load_kanga_bank import check  # noqa: E402
+    bank = {"made-up-2": {"eng": {**CANDY, "options": CANDY["options"], "label": "C"}}}
+    assert check(script, bank, ["eng"]) == [f"made-up-2: no question for the wrong option {x}" for x in "ABD"]
+    leaky = {**script, "wrong": {x: {"eng": "Is it not 4, then?"} for x in "ABDE"}}
+    assert any("not in the problem: ['4']" in issue for issue in check(leaky, bank, ["eng"]))
+    lettered = {**script, "wrong": {x: {"eng": "Is the answer C, then?"} for x in "ABDE"}}
+    assert any("names an option letter" in issue for issue in check(lettered, bank, ["eng"]))
+
     grammar = question_grammar(["17", "9", "17"])
     assert grammar.count('"17"') == 1 and '"9"' in grammar and grammar.startswith("root ::= first")
     print("teach mode checks pass")
