@@ -431,6 +431,10 @@ laptop/                data preparation, the hint bank, experiments
 tools/                 reports: errors, teaching, latency
 SETUP.md               the organizers' guide: from a fresh board to the baseline
 ```
+## Images
+<img width="1459" height="847" alt="image" src="https://github.com/user-attachments/assets/4ecc0590-247c-4e0e-96ee-d00ec57e002e" />
+
+
 
 ## Team
 
