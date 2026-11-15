@@ -14,6 +14,8 @@ laptop/code_lab.py.
 Standard library only. The model's program runs in a separate Python process
 with a time limit, no dangerous names and a short list of allowed imports.
 """
+import ast
+import json
 import os
 import re
 import subprocess
@@ -63,9 +65,14 @@ EXAMPLES = [
      "x=3\nfor _ in range(8):x=2*x-1\nprint(x)"),
 ]
 FEWSHOT = os.environ.get("CODE_FEWSHOT", "1") != "0"
+# CODE_EXAMPLES=<file.json>: use the [question, program] pairs of that file instead of the ones above
+if os.environ.get("CODE_EXAMPLES"):
+    with open(os.environ["CODE_EXAMPLES"], encoding="utf-8") as _f:
+        EXAMPLES = [tuple(pair) for pair in json.load(_f)]
 # The first attempt does not see the choices: with them the model prints one instead of computing.
 SHOW_OPTIONS = os.environ.get("CODE_OPTIONS", "0") != "0"
-RETRY = os.environ.get("CODE_RETRY", "0") != "0"  # measured: +2 of 100, and it breaks the prompt cache
+REPAIR = os.environ.get("CODE_REPAIR", "0") != "0"    # mend a program that does not parse, before running it
+SECOND = os.environ.get("CODE_SECOND", "0") != "0"    # a second program, with the choices shown, when the first fails
 # Put in front of every program: the imports the model forgets cost it no tokens.
 PREAMBLE = ("import math, itertools, fractions, collections, functools\nfrom math import *\n"
             "from itertools import *\nfrom fractions import Fraction\nfrom collections import *\n")
@@ -98,15 +105,27 @@ def messages(problem):
     return prefix() + [{"role": "user", "content": user_text(problem)}]
 
 
-def prompt_tokens(problem):
-    """A safe estimate of the tokens the server must read (the prefix is cached after the warm-up).
-    Fitted on the practice set: tokens = 0.29 * characters + 31; this is that line, rounded up."""
-    return 0.30 * len(user_text(problem)) + 40
+TEMPLATE_TOKENS = 12   # the chat template around the problem's text: measured 10 on the practice set
 
 
-def budget(problem, seconds_left):
+def prompt_tokens(problem, url=None):
+    """The tokens the server must read for this problem (the prefix is cached after the warm-up).
+
+    Asks the server's tokenizer for the exact count (milliseconds, no model run). Without a
+    server, an estimate fitted on the practice set (0.27 * characters + 10, worst row +25)."""
+    text = user_text(problem)
+    if url:
+        try:
+            base = url.split("/v1/")[0]
+            return len(post(base + "/tokenize", {"content": text}, timeout=5.0)["tokens"]) + TEMPLATE_TOKENS
+        except Exception:
+            pass
+    return 0.30 * len(text) + 35
+
+
+def budget(problem, seconds_left, url=None):
     """How many tokens the model may write so that reading, writing and running fit in seconds_left."""
-    writing = seconds_left - prompt_tokens(problem) / READ_TPS - RUN_SECONDS
+    writing = seconds_left - prompt_tokens(problem, url) / READ_TPS - RUN_SECONDS
     return max(0, min(MAX_TOKENS, int(writing * WRITE_TPS)))
 
 
@@ -114,6 +133,58 @@ def extract(reply):
     reply = reply.split("</think>")[-1]
     blocks = re.findall(r"```(?:python)?\n(.*?)(?:```|\Z)", reply, flags=re.S)
     return (blocks[0] if blocks else reply).strip()
+
+
+def parses(code):
+    try:
+        ast.parse(PREAMBLE + code)
+        return True
+    except (SyntaxError, ValueError):
+        return False
+
+
+def split_compound(line):
+    """"for a in x:for b in y:if c:print(a)" is not Python: put each nested block on its own line."""
+    indent = line[:len(line) - len(line.lstrip())]
+    if not re.match(r"(for|while|if)\b", line.lstrip()):
+        return [line]
+    out, depth, quote, start, level = [], 0, "", 0, 0
+    for i, ch in enumerate(line):
+        if quote:
+            quote = "" if ch == quote else quote
+        elif ch in "\"'":
+            quote = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == ":" and depth == 0 and re.match(r"\s*(for|while|if)\b", line[i + 1:]):
+            out.append(indent + "    " * level + line[start:i + 1].strip())
+            start, level = i + 1, level + 1
+    out.append(indent + "    " * level + line[start:].strip())
+    return out
+
+
+def repair(code):
+    """Mend the two commonest ways a program fails to parse. Returns the code unchanged if it parses."""
+    if parses(code):
+        return code
+    lines = [part for line in code.splitlines() for part in split_compound(line)]
+    fixed = "\n".join(lines)
+    if parses(fixed):
+        return fixed
+    # cut off by the token budget: drop the unfinished tail, and print the last value it set
+    for cut in range(1, min(4, len(lines))):
+        head = lines[:-cut]
+        if parses("\n".join(head)):
+            body = "\n".join(head)
+            if "print(" not in body:
+                names = re.findall(r"^\s*([A-Za-z_]\w*)\s*(?:[+\-*/]?=)(?!=)", body, flags=re.M)
+                if not names:
+                    break
+                body += "\nprint(" + names[-1] + ")"
+            return body
+    return code
 
 
 def run(code, timeout=RUN_SECONDS):
@@ -193,16 +264,6 @@ def choices(problem):
     return ", ".join(clean_option(problem["options"][k]) for k in LETTERS)
 
 
-def feedback(problem, why, output):
-    """What the model is told after a first program that gave no usable answer."""
-    if why in ("no option", "guess") and output:
-        start = f"That printed {output[:40]}, which is wrong."
-    else:
-        start = "That program did not work."
-    return (f"{start} The answer is one of: {choices(problem)}. "
-            "Write a different short program that computes it step by step.")
-
-
 def nearest(output, options):
     """The letter of the numeric option closest to a numeric output, or None."""
     value, numbers = number(output), option_numbers(options)
@@ -214,10 +275,16 @@ def nearest(output, options):
 def attempt(turns, max_tokens, timeout, url):
     """One call and one run. Returns (code, output, why, timings, simulated board seconds)."""
     start = time.perf_counter()
+    # t_max_predict_ms: the server itself stops writing in time. Without it, a request the
+    # client gave up on keeps the server busy, and the next problem waits behind it.
+    write_ms = int(max(timeout, 1.0) * 1000)
     response = post(url, {"messages": turns, "max_tokens": max_tokens, "temperature": 0,
-                          "seed": int(CONFIG["SEED"]), "cache_prompt": True}, timeout=max(timeout, 1.0))
+                          "seed": int(CONFIG["SEED"]), "cache_prompt": True, "t_max_predict_ms": write_ms},
+                    timeout=max(timeout, 1.0))
     timings = response.get("timings", {})
     code = extract(response["choices"][0]["message"]["content"])
+    if REPAIR:
+        code = repair(code)
     run_start = time.perf_counter()
     output, why = run(code, timeout=RUN_SECONDS)
     run_s = time.perf_counter() - run_start
@@ -231,7 +298,7 @@ def solve(problem, seconds_left, url=URL):
 
     why says how far to trust the letter:
       accepted   a program that computes printed exactly one option (first try)
-      accepted2  the same, on the second try, after the model was told what went wrong
+      accepted2  the same, on the second try, where the model also sees the choices
       nearest    no program hit an option; the numeric option closest to its output
       guess      the program only printed a value, and it is an option
     Never takes longer than seconds_left on the board: the tokens of each try are budgeted
@@ -242,7 +309,7 @@ def solve(problem, seconds_left, url=URL):
     if len(options) != 5 or any(k not in options for k in LETTERS):
         info["why"] = "no options"
         return None, info
-    info["max_tokens"] = budget(problem, seconds_left)
+    info["max_tokens"] = budget(problem, seconds_left, url)
     if info["max_tokens"] < MIN_TOKENS:
         info["why"] = "no time"
         return None, info
@@ -257,14 +324,14 @@ def solve(problem, seconds_left, url=URL):
     first_why = why or ("guess" if letter else "no option")
     fallback = (letter, "guess") if letter else (nearest(output, options), "nearest") if not why else (None, first_why)
 
-    # second try: tell the model what went wrong, and now show the choices
-    if RETRY:
-        note = feedback(problem, first_why, output)
-        reading = timings.get("predicted_n", 0) + 0.30 * len(note) + 15   # its own program, then the note
+    # second try: the same problem with the choices shown. The server still holds the examples
+    # and the problem, so it only reads the choices; the cost is the writing.
+    if SECOND:
+        reading = 0.30 * len(choices(problem)) + 10
         left = seconds_left - spent
         tokens = max(0, min(MAX_TOKENS, int((left - reading / READ_TPS - RUN_SECONDS) * WRITE_TPS)))
         if tokens >= MIN_TOKENS:
-            turns = turns + [{"role": "assistant", "content": code}, {"role": "user", "content": note}]
+            turns = prefix() + [{"role": "user", "content": user_text(problem) + "\nChoices: " + choices(problem)}]
             code2, output2, why2, timings2, spent2 = attempt(turns, tokens, left - RUN_SECONDS, url)
             info.update(code=code + "\n# --- second try ---\n" + code2, output=output2,
                         tokens=info["tokens"] + timings2.get("predicted_n", 0),
@@ -274,9 +341,6 @@ def solve(problem, seconds_left, url=URL):
             if letter2 and computes(code2):
                 info["why"] = "accepted2"
                 return letter2, info
-            if fallback[0] is None:
-                fallback = ((letter2, "guess") if letter2
-                            else (nearest(output2, options), "nearest") if not why2 else (None, why2 or first_why))
     info["why"] = fallback[1] if fallback[0] else first_why
     return fallback[0], info
 

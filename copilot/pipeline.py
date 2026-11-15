@@ -172,7 +172,9 @@ def solve(problem, index=None, k=0, exclude_id=None, image_b64=None, llm_url=URL
             letter, info = coder.solve(problem, left, url=ctx.get("code_url") or coder.URL)
             result["prompt_tokens"] = info.get("prompt_tokens", 0)
             result["code_why"], result["code_tokens"] = info["why"], info.get("tokens", 0)
-            if is_letter(letter):
+            # Only a program that computes and hits exactly one option is trusted. "nearest" and
+            # "guess" were right 4 times in 38 on the practice set, the prior 10 times on the same rows.
+            if is_letter(letter) and info["why"].startswith("accepted"):
                 return done(letter, "code")
             return done(prior_letter, "code-prior")
         except Exception as error:
