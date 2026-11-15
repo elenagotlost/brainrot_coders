@@ -38,6 +38,9 @@ def main():
     assert calculations("he gives 17 - 13")[0]["unfinished"]
     assert calculations("17 - 13 =")[0]["unfinished"]
     assert calculations("there are 9 and 17") == []
+    assert calculations("2x2=4")[0]["value"] == "4" and calculations("3 x 4 = 12")[0]["slip"] is None
+    assert calculations("2x2=5")[0]["slip"] == ("2 × 2", "5")
+    assert conclusion(CANDY, "two places for the car and two orders, 2x2=4") == ("C", "4")
 
     # what one message ends on
     assert conclusion(PROBLEM, "so the answer is C") == ("C", "10")

@@ -145,6 +145,15 @@ def same(computed, written):
     return bool(re.search(r"[.,]\d", written)) and abs(float(stated) - float(computed)) <= 0.006 * max(1, abs(float(computed)))
 
 
+# "2x2" and "3 x 4": an x between two numbers is a times sign
+TIMES_X = re.compile(r"(?<=\d)\s*[xX]\s*(?=\d)")
+
+
+def times_signs(text):
+    """The text with every x between two numbers written as ×, so it reads as a calculation."""
+    return TIMES_X.sub(" × ", text or "")
+
+
 def calculations(text):
     """The calculations written in a text, in order: [{"start", "end", "text", "value", "slip", "unfinished"}].
 
@@ -152,7 +161,7 @@ def calculations(text):
     "17 - 13" (or "17 - 13 =") is unfinished: the student has not said what it gives.
     The value is that of the last part, so the result of a chain "9 + 17 = 26 / 2 = 13" is 13."""
     found = []
-    for m in SUM.finditer(text or ""):
+    for m in SUM.finditer(times_signs(text)):
         chunk = m.group(0)
         if not OPERATOR.search(chunk):
             continue
@@ -193,7 +202,7 @@ def read_result(problem, text):
     by 3" ends on nothing). A number of the problem counts only when it is the only number the
     message uses. A letter counts when it is named ("option b", "the answer is C", "b)").
     The last result in the text wins."""
-    text = text or ""
+    text = times_signs(text)
     sums = calculations(text)
     slips = [s["slip"] for s in sums if s["slip"]]
     inside = [(s["start"], s["end"]) for s in sums]
@@ -298,7 +307,7 @@ def analyse(problem, explanations, notes="", script=None):
     After the student has explained twice, a right answer that is long enough is accepted even if
     it took another path than the notes: there is more than one way to solve a problem.
     With a script, a right answer convinces Kanga once the student has gone through all of the
-    script's key steps but one (at least one), or after three explanations."""
+    script's key steps but one (at least one), or after five explanations."""
     label = problem.get("label")
     latest = explanations[-1] if explanations else ""
     everything = "\n".join(explanations)
@@ -355,7 +364,8 @@ def analyse(problem, explanations, notes="", script=None):
             out["status"] = "short" if out["words"] < MIN_WORDS else "no_answer"
     elif script:
         need = max(1, len(script.get("steps") or []) - 1)
-        out["status"] = "convinced" if len(out["steps_done"]) >= need or len(explanations) >= 3 else "gap"
+        # repeating the answer is not explaining it: only a long struggle (or Show me how) gets past the steps
+        out["status"] = "convinced" if len(out["steps_done"]) >= need or len(explanations) >= 5 else "gap"
     elif out["words"] < MIN_WORDS:
         out["status"] = "short"
     elif len(explanations) < 2 and keys and not covered:

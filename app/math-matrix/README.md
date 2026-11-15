@@ -57,7 +57,7 @@ A script holds:
   red or blue?"
 - the key steps of a solution, in order, each with the numbers that show the student has done it
   ("18": all the red and blue balls). Kanga asks about the first step not done yet. A right answer convinces
-  Kanga once the student has done all of the steps but one, or after three explanations.
+  Kanga once the student has done all of the steps but one, or after five explanations.
 - the worked solution, for "Show me how".
 
 `laptop/load_kanga_bank.py` checks every script against the bank and refuses any whose questions name a letter
