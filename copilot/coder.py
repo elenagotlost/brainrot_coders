@@ -7,14 +7,14 @@ enumerate, last digit, divisibility) and a few lines of brute force solve them.
 Code is much shorter than prose working, and Python does the arithmetic the
 model gets wrong.
 
-Measured on the 100 datathon practice rows: Qwen3.5 2B answers about 44 this
-way and is right on half of them, against 20% for every letter-picking variant.
 On the board the 2B reads 4.6 tokens/s and writes 2.6, so the number of tokens
-it may write is set from the time left (see budget()).
+it may write is set from the time left (see budget()). Measure any change with
+laptop/code_lab.py.
 
 Standard library only. The model's program runs in a separate Python process
 with a time limit, no dangerous names and a short list of allowed imports.
 """
+import os
 import re
 import subprocess
 import sys
@@ -31,24 +31,75 @@ WRITE_TPS = float(CONFIG.get("CODE_WRITE_TPS", "2.6"))
 MAX_TOKENS = int(CONFIG.get("CODE_MAX_TOKENS", "96"))
 MIN_TOKENS = 20        # less than this is not a program: skip the stage
 RUN_SECONDS = 5.0      # how long the program may run
-SYSTEM = ("You solve math competition problems by writing Python. Write a very short Python 3 program, at most "
-          "10 lines, that computes the answer by brute force and prints only the final answer with print(). "
-          "No comments, no functions, no explanation. Never answer directly: always reply with code only.")
+SYSTEM = ("You solve math competition problems by writing a very short Python 3 program that finds the answer "
+          "by brute force and prints only the final answer. math, itertools and Fraction are already imported. "
+          "Reply with code only. Never reply with the answer itself: always compute it.")
+# Solved examples, read once at warm-up and then cached by the server: they cost no time per
+# problem. Written for this file (not M3Kang, not the practice set). They teach the style:
+# enumerate, test the condition, print. Set CODE_FEWSHOT=0 to switch them off.
+EXAMPLES = [
+    ("How many whole numbers from 1 to 200 have digits that add up to 9?",
+     "print(sum(1 for n in range(1,201) if sum(map(int,str(n)))==9))"),
+    ("Marta has 12 coins. Some are worth 2 cents and the rest 5 cents. Together they are worth 39 cents. "
+     "How many 5-cent coins does she have?",
+     "for a in range(13):\n    if 5*a+2*(12-a)==39:print(a)"),
+    ("Four friends stand in a queue. Ana is somewhere ahead of Bea. Carla is directly behind Dani. "
+     "Bea is not last. Who is second?",
+     'for p in permutations(["Ana","Bea","Carla","Dani"]):\n    i=p.index\n'
+     '    if i("Ana")<i("Bea") and i("Carla")==i("Dani")+1 and i("Bea")!=3:print(p[1])'),
+    ("Two fair dice are rolled. What is the probability that the product of the two numbers is even?",
+     "r=[a*b%2==0 for a in range(1,7) for b in range(1,7)]\nprint(Fraction(sum(r),len(r)))"),
+    ("What is the smallest positive whole number that is divisible by 6 and whose digits add up to 15?",
+     "n=1\nwhile not(n%6==0 and sum(map(int,str(n)))==15):n+=1\nprint(n)"),
+    ("A train leaves every 25 minutes; the first one leaves at 7:10. Pau arrives at 9:00. "
+     "At what time does the next train leave?",
+     't=7*60+10\nwhile t<9*60:t+=25\nprint(f"{t//60}:{t%60:02d}")'),
+    ("The digits 2, 5, 7 and 8 are used once each to write two two-digit numbers. "
+     "What is the smallest possible product of the two numbers?",
+     "print(min((10*a+b)*(10*c+d) for a,b,c,d in permutations([2,5,7,8])))"),
+    ("How many subsets of {1, 2, 3, 4, 5, 6} have a sum of 10?",
+     "print(sum(1 for k in range(7) for c in combinations(range(1,7),k) if sum(c)==10))"),
+    ("A number starts at 3. At each step it is doubled and then 1 is subtracted. What is it after 8 steps?",
+     "x=3\nfor _ in range(8):x=2*x-1\nprint(x)"),
+]
+FEWSHOT = os.environ.get("CODE_FEWSHOT", "1") != "0"
+# The first attempt does not see the choices: with them the model prints one instead of computing.
+SHOW_OPTIONS = os.environ.get("CODE_OPTIONS", "0") != "0"
+RETRY = os.environ.get("CODE_RETRY", "0") != "0"  # measured: +2 of 100, and it breaks the prompt cache
+# Put in front of every program: the imports the model forgets cost it no tokens.
+PREAMBLE = ("import math, itertools, fractions, collections, functools\nfrom math import *\n"
+            "from itertools import *\nfrom fractions import Fraction\nfrom collections import *\n")
 ALLOWED = {"math", "itertools", "fractions", "collections", "functools", "datetime"}
 BANNED = re.compile(r"__|\bopen\s*\(|\beval\s*\(|\bexec\s*\(|\binput\s*\(|\bos\b|\bsys\b|\bsubprocess\b|\bsocket\b")
 
 
+def clean_option(text):
+    """An option as the model should read it: OCR's long dash becomes a minus sign."""
+    return re.sub(r"^[一—–−]\s*", "-", text.strip())
+
+
 def user_text(problem):
     text = re.sub(r"^\s*\d+\.\s*", "", problem["text"]).strip()
-    return text + "\nOptions: " + "  ".join(f"{k}) {problem['options'][k]}" for k in LETTERS)
+    if not SHOW_OPTIONS:
+        return text
+    return text + "\nChoices: " + ", ".join(clean_option(problem["options"][k]) for k in LETTERS)
+
+
+def prefix():
+    """The part of the prompt that is the same for every problem: the server caches it."""
+    turns = [{"role": "system", "content": SYSTEM}]
+    if FEWSHOT:
+        for question, code in EXAMPLES:
+            turns += [{"role": "user", "content": question}, {"role": "assistant", "content": code}]
+    return turns
 
 
 def messages(problem):
-    return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user_text(problem)}]
+    return prefix() + [{"role": "user", "content": user_text(problem)}]
 
 
 def prompt_tokens(problem):
-    """A safe estimate of the tokens the server must read (the system prompt is cached after the warm-up).
+    """A safe estimate of the tokens the server must read (the prefix is cached after the warm-up).
     Fitted on the practice set: tokens = 0.29 * characters + 31; this is that line, rounded up."""
     return 0.30 * len(user_text(problem)) + 40
 
@@ -60,6 +111,7 @@ def budget(problem, seconds_left):
 
 
 def extract(reply):
+    reply = reply.split("</think>")[-1]
     blocks = re.findall(r"```(?:python)?\n(.*?)(?:```|\Z)", reply, flags=re.S)
     return (blocks[0] if blocks else reply).strip()
 
@@ -72,7 +124,8 @@ def run(code, timeout=RUN_SECONDS):
         if module not in ALLOWED:
             return "", "import"
     try:
-        done = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, timeout=timeout)
+        done = subprocess.run([sys.executable, "-I", "-c", PREAMBLE + code], capture_output=True, text=True,
+                              timeout=timeout)
     except subprocess.TimeoutExpired:
         return "", "timeout"
     lines = [line.strip() for line in done.stdout.splitlines() if line.strip()]
@@ -82,24 +135,51 @@ def run(code, timeout=RUN_SECONDS):
 
 
 def number(text):
-    text = text.strip().replace("−", "-").replace(",", ".").replace(" ", "")
-    text = re.sub(r"(cm|m|kg|g|°|%|€|km|min|h|s)\.?$", "", text)
+    text = clean_option(str(text)).replace("−", "-").replace(",", ".").replace(" ", "")
+    text = re.sub(r"(cm|mm|km|m|kg|g|°|%|€|min|h|s)\.?$", "", text)
     try:
         return Fraction(text)
     except (ValueError, ZeroDivisionError):
         return None
 
 
+def option_numbers(options):
+    """The five options as lists of possible numbers ([] where an option is not a number).
+
+    OCR sometimes reads a stray digit before a number ("1 16" for 16, "2 4" for 24). The
+    options of a problem are written in ascending order, so of the two readings (digits
+    joined, or the last group alone) those that keep the order are kept."""
+    single = [number(options[k]) for k in LETTERS]
+    values = [[] if v is None else [v] for v in single]
+    for i, letter in enumerate(LETTERS):
+        raw = clean_option(options[letter])
+        if not re.fullmatch(r"-?\d+\s+\d+", raw):
+            continue
+        low = next((v for v in reversed(single[:i]) if v is not None), None)
+        high = next((v for v in single[i + 1:] if v is not None), None)
+        fits = [v for v in (number(raw), number(raw.split()[-1]))
+                if (low is None or v > low) and (high is None or v < high)]
+        if fits:
+            values[i] = fits
+    return values
+
+
+def same_text(a, b):
+    """Text options: ignore case, spaces and the letters OCR confuses (l, I, 1)."""
+    def squash(text):
+        return re.sub(r"[il1|]", "l", re.sub(r"\s+", "", text.lower()))
+    return squash(a) == squash(b)
+
+
 def match(output, options):
     """The one letter whose value equals the output, or None."""
     value = number(output)
     hits = []
-    for letter in LETTERS:
-        option = options[letter]
-        if value is not None and number(option) is not None:
-            if abs(number(option) - value) < Fraction(1, 1000):
+    for letter, option_value in zip(LETTERS, option_numbers(options)):
+        if value is not None and option_value:
+            if any(abs(v - value) < Fraction(1, 1000) for v in option_value):
                 hits.append(letter)
-        elif re.sub(r"\s+", "", option.lower()) == re.sub(r"\s+", "", output.lower()):
+        elif same_text(options[letter], output):
             hits.append(letter)
     return hits[0] if len(hits) == 1 else None
 
@@ -109,14 +189,55 @@ def computes(code):
     return bool(re.search(r"\bfor\b|\bwhile\b|\bsum\(|\blen\(|\brange\(|%|\*\*|//|itertools|math\.", code))
 
 
-def solve(problem, seconds_left, url=URL):
-    """Return (letter or None, info). info: why, code, output, tokens, prompt_tokens, max_tokens, read_s, write_s.
+def choices(problem):
+    return ", ".join(clean_option(problem["options"][k]) for k in LETTERS)
 
-    Never takes longer than seconds_left: the tokens are budgeted, and the request
-    itself is cut off in time. Raises nothing the caller must handle except what
-    post() raises (timeout, connection), which means "no answer".
+
+def feedback(problem, why, output):
+    """What the model is told after a first program that gave no usable answer."""
+    if why in ("no option", "guess") and output:
+        start = f"That printed {output[:40]}, which is wrong."
+    else:
+        start = "That program did not work."
+    return (f"{start} The answer is one of: {choices(problem)}. "
+            "Write a different short program that computes it step by step.")
+
+
+def nearest(output, options):
+    """The letter of the numeric option closest to a numeric output, or None."""
+    value, numbers = number(output), option_numbers(options)
+    if value is None or not all(numbers):
+        return None
+    return min(LETTERS, key=lambda letter: min(abs(v - value) for v in numbers[LETTERS.index(letter)]))
+
+
+def attempt(turns, max_tokens, timeout, url):
+    """One call and one run. Returns (code, output, why, timings, simulated board seconds)."""
+    start = time.perf_counter()
+    response = post(url, {"messages": turns, "max_tokens": max_tokens, "temperature": 0,
+                          "seed": int(CONFIG["SEED"]), "cache_prompt": True}, timeout=max(timeout, 1.0))
+    timings = response.get("timings", {})
+    code = extract(response["choices"][0]["message"]["content"])
+    run_start = time.perf_counter()
+    output, why = run(code, timeout=RUN_SECONDS)
+    run_s = time.perf_counter() - run_start
+    board_s = timings.get("prompt_n", 0) / READ_TPS + timings.get("predicted_n", 0) / WRITE_TPS + run_s
+    # on the board the wall clock is the truth; on a faster machine the simulated time is
+    return code, output, why, timings, max(board_s, time.perf_counter() - start)
+
+
+def solve(problem, seconds_left, url=URL):
+    """Return (letter or None, info). info: why, code, output, tokens, prompt_tokens, max_tokens, board_s.
+
+    why says how far to trust the letter:
+      accepted   a program that computes printed exactly one option (first try)
+      accepted2  the same, on the second try, after the model was told what went wrong
+      nearest    no program hit an option; the numeric option closest to its output
+      guess      the program only printed a value, and it is an option
+    Never takes longer than seconds_left on the board: the tokens of each try are budgeted
+    from the time left. Raises only what post() raises (timeout, connection): "no answer".
     """
-    info = {"why": "", "code": "", "output": "", "tokens": 0, "prompt_tokens": 0, "max_tokens": 0}
+    info = {"why": "", "code": "", "output": "", "tokens": 0, "prompt_tokens": 0, "max_tokens": 0, "board_s": 0.0}
     options = problem.get("options") or {}
     if len(options) != 5 or any(k not in options for k in LETTERS):
         info["why"] = "no options"
@@ -125,32 +246,47 @@ def solve(problem, seconds_left, url=URL):
     if info["max_tokens"] < MIN_TOKENS:
         info["why"] = "no time"
         return None, info
-    start = time.perf_counter()
-    response = post(url, {"messages": messages(problem), "max_tokens": info["max_tokens"], "temperature": 0,
-                          "seed": int(CONFIG["SEED"]), "cache_prompt": True},
-                    timeout=max(seconds_left - RUN_SECONDS, 1.0))
-    timings = response.get("timings", {})
-    info.update(tokens=timings.get("predicted_n", 0), prompt_tokens=timings.get("prompt_n", 0),
-                read_s=timings.get("prompt_ms", 0) / 1000, write_s=timings.get("predicted_ms", 0) / 1000)
-    info["code"] = extract(response["choices"][0]["message"]["content"])
-    left = seconds_left - (time.perf_counter() - start)
-    if left < 1.0:
-        info["why"] = "no time"
-        return None, info
-    info["output"], info["why"] = run(info["code"], timeout=min(RUN_SECONDS, left))
-    if info["why"]:
-        return None, info
-    letter = match(info["output"], options)
-    info["why"] = "accepted" if letter else "no option"
-    return letter, info
+    turns = messages(problem)
+    code, output, why, timings, spent = attempt(turns, info["max_tokens"], seconds_left - RUN_SECONDS, url)
+    info.update(code=code, output=output, tokens=timings.get("predicted_n", 0),
+                prompt_tokens=timings.get("prompt_n", 0), board_s=spent, tries=1)
+    letter = None if why else match(output, options)
+    if letter and computes(code):
+        info["why"] = "accepted"
+        return letter, info
+    first_why = why or ("guess" if letter else "no option")
+    fallback = (letter, "guess") if letter else (nearest(output, options), "nearest") if not why else (None, first_why)
+
+    # second try: tell the model what went wrong, and now show the choices
+    if RETRY:
+        note = feedback(problem, first_why, output)
+        reading = timings.get("predicted_n", 0) + 0.30 * len(note) + 15   # its own program, then the note
+        left = seconds_left - spent
+        tokens = max(0, min(MAX_TOKENS, int((left - reading / READ_TPS - RUN_SECONDS) * WRITE_TPS)))
+        if tokens >= MIN_TOKENS:
+            turns = turns + [{"role": "assistant", "content": code}, {"role": "user", "content": note}]
+            code2, output2, why2, timings2, spent2 = attempt(turns, tokens, left - RUN_SECONDS, url)
+            info.update(code=code + "\n# --- second try ---\n" + code2, output=output2,
+                        tokens=info["tokens"] + timings2.get("predicted_n", 0),
+                        prompt_tokens=info["prompt_tokens"] + timings2.get("prompt_n", 0),
+                        board_s=spent + spent2, tries=2)
+            letter2 = None if why2 else match(output2, options)
+            if letter2 and computes(code2):
+                info["why"] = "accepted2"
+                return letter2, info
+            if fallback[0] is None:
+                fallback = ((letter2, "guess") if letter2
+                            else (nearest(output2, options), "nearest") if not why2 else (None, why2 or first_why))
+    info["why"] = fallback[1] if fallback[0] else first_why
+    return fallback[0], info
 
 
-def warm_up(url=URL, timeout=120.0):
-    """One call at start-up, so the server has read the system prompt before the first problem.
+def warm_up(url=URL, timeout=300.0):
+    """One call at start-up, so the server has read the prefix before the first problem.
     Returns the seconds it took, or None when the code server is not there."""
     start = time.perf_counter()
     try:
-        post(url, {"messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": "1 + 1"}],
+        post(url, {"messages": prefix() + [{"role": "user", "content": "What is 1 + 1?"}],
                    "max_tokens": 1, "temperature": 0, "cache_prompt": True}, timeout=timeout)
     except Exception:
         return None
