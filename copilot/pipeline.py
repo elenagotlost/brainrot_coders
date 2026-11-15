@@ -148,7 +148,16 @@ def solve(problem, index=None, k=0, exclude_id=None, image_b64=None, llm_url=URL
             letter, info = twins.answer(ctx["twins"], problem, exclude=skip)
             result["twin"] = info
             if is_letter(letter):
-                return done(letter, "twin")
+                # the safety check: the code model gives a second opinion on the looked-up
+                # answer. Confirmed, or not asked in time: the lookup answers. Rejected: the
+                # problem goes on through the cascade with the time that is left.
+                verdict = None
+                if ctx.get("check_twin") and ctx.get("code"):
+                    left = time_limit - MARGIN - (time.perf_counter() - start)
+                    verdict = coder.check(problem, letter, left / 2, url=ctx.get("code_url") or coder.URL)
+                    result["twin_check"] = {True: "yes", False: "no", None: "not asked"}[verdict]
+                if verdict is not False:
+                    return done(letter, "twin" if verdict is None else "twin-checked")
         except Exception as error:  # a broken lookup must never cost the answer
             result["status"] = f"twin error: {type(error).__name__}"
 

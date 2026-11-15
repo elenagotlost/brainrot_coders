@@ -24,6 +24,10 @@ def add_cascade_arguments(parser):
                         help="look for the same problem, already solved, in the bank first, and stop if "
                              "the bank is missing. predict.py does this by itself when its bank is there")
     parser.add_argument("--no-twins", action="store_true", help="never look problems up in the bank")
+    parser.add_argument("--check-lookup", action="store_true",
+                        help="ask the code model for a second opinion on every looked-up answer; when it says "
+                             "no, the problem goes on to the code stage. predict.py does this by itself")
+    parser.add_argument("--no-check-lookup", action="store_true", help="trust the lookup without asking the model")
     parser.add_argument("--bank", default="", metavar="PATH",
                         help="solved problems for the lookup: a .jsonl file, or a folder of them")
     parser.add_argument("--calib", default="", metavar="PATH",
@@ -141,6 +145,10 @@ def build_ctx(args, default_bank, auto_twins=False):
                 sys.exit(f"--twins, but the bank {bank} could not be read: {error}")
             ctx["twins"] = None
             print(f"lookup: off, the bank {bank} could not be read ({error})", file=sys.stderr)
-    elif auto_twins:
+    ctx["check_twin"] = bool(ctx["twins"] is not None and ctx["code"] and not args.no_check_lookup
+                             and (args.check_lookup or auto_twins))
+    if ctx["twins"] is not None:
+        print(f"lookup check by the code model: {'on' if ctx['check_twin'] else 'off'}", file=sys.stderr)
+    if ctx["twins"] is None and auto_twins:
         print(f"lookup: off ({'--no-twins' if args.no_twins else 'no bank at ' + bank})", file=sys.stderr)
     return ctx

@@ -145,6 +145,43 @@ def solve(problem, seconds_left, url=URL):
     return letter, info
 
 
+CHECK_SYSTEM = ("You check a proposed answer to a math competition problem. Work out whether the proposed "
+                "answer is correct. Reply with one word: yes or no.")
+
+
+def check(problem, letter, seconds_left, url=URL):
+    """Ask the code model whether a looked-up answer is right. Returns True, False, or None
+    when it could not be asked in time (no options, no time, server error).
+
+    Measured on the 100 practice rows: the model says yes to 52 right answers and to 51 wrong
+    ones, so this is a second opinion, not a proof. "yes" or the same letter confirms; "no"
+    or another letter rejects."""
+    options = problem.get("options") or {}
+    if letter not in options or any(k not in options for k in LETTERS):
+        return None
+    user = (user_text(problem) + f"\nProposed answer: {letter}) {options[letter]}"
+            "\nIs the proposed answer correct?")
+    # measured on the practice set: 0.29 * characters + 31 tokens with a system prompt of this
+    # size, which is read again every time because the code stage's prompt replaces it in the cache
+    reading = (0.30 * len(user) + 40) / READ_TPS
+    if reading + 3 / WRITE_TPS > seconds_left:
+        return None
+    try:
+        response = post(url, {"messages": [{"role": "system", "content": CHECK_SYSTEM},
+                                           {"role": "user", "content": user}],
+                              "max_tokens": 3, "temperature": 0, "seed": int(CONFIG["SEED"]),
+                              "cache_prompt": True}, timeout=max(seconds_left, 1.0))
+        reply = response["choices"][0]["message"]["content"].strip().lower()
+    except Exception:
+        return None
+    if reply.startswith("yes"):
+        return True
+    if reply.startswith("no"):
+        return False
+    named = re.match(r"([a-e])\b", reply)
+    return (named.group(1).upper() == letter) if named else None
+
+
 def warm_up(url=URL, timeout=120.0):
     """One call at start-up, so the server has read the system prompt before the first problem.
     Returns the seconds it took, or None when the code server is not there."""
