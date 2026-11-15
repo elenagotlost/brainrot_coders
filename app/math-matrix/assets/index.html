@@ -5,150 +5,178 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Math matrix tutor</title>
   <style>
-    /* No web fonts, no images, no libraries: the board is offline. */
-    :root { --ink: #1f1b3a; --soft: #6b6787; --line: #e3e0f2; --paper: #f4f1fb; --card: #fff;
-            --main: #5b4bdb; --main-dark: #4334b8; --main-soft: #ecebff;
-            --sun: #ff8a3d; --sun-soft: #fff1e4; --gold: #f5b301;
-            --go: #12996a; --go-soft: #e3f7ee; --stop: #d93f4c; --stop-soft: #fdecee;
-            --round: ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Nunito", "Quicksand", "Trebuchet MS", Verdana, system-ui, sans-serif; }
+    /* No web fonts, no images, no libraries: the board is offline. Flat colours, no gradients. */
+    :root { --bg: #1c7a76; --bg-2: #145e5b; --bg-3: #3b9a97; --paper: #f3f8f8; --ink: #1c1c28; --soft: #6f6f80; --line: #e4e4ec; --field: #f5f5f9;
+            --green: #2fb344; --green-d: #23882f; --green-bg: #d9f7c9; --green-ink: #1f6f2a;
+            --red: #e5484d; --red-d: #b9343a; --red-bg: #ffdfe0; --red-ink: #b02a31;
+            --blue: #2f7de1; --blue-d: #2161b8; --amber: #f2a900; --amber-d: #c48700; --violet: #7c5ce0; --violet-d: #5f43bd;
+            --flame: #ff8a1f; --gold: #ffc400;
+            --font: ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Nunito", "Varela Round", "Trebuchet MS", Verdana, system-ui, sans-serif; }
     * { box-sizing: border-box; }
-    html { background: var(--paper); }
-    body { font: 18px/1.55 var(--round); color: var(--ink); margin: 0 auto; max-width: 820px; padding: 16px 16px 70px;
-           background: radial-gradient(900px 380px at 85% -80px, #ffe3cc 0, transparent 70%),
-                       radial-gradient(800px 420px at 0 -60px, #dcd7ff 0, transparent 70%); background-repeat: no-repeat; }
-    h1, h2, h3, p { margin: 0; }
+    /* teal at the top, where the white text sits, fading into a white page */
+    html { background: linear-gradient(180deg, var(--bg) 0, var(--bg-3) 230px, var(--paper) 600px) no-repeat var(--paper); min-height: 100%; }
+    body { font: 600 18px/1.5 var(--font); color: #fff; margin: 0 auto; max-width: 860px; padding: 16px 16px 190px; }
+    h1, h2, h3, p, ol { margin: 0; padding: 0; }
     button, select, input { font: inherit; color: inherit; }
+    svg { width: 1em; height: 1em; fill: currentColor; flex: none; vertical-align: -0.14em; }
+    svg.line { fill: none; stroke: currentColor; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
     [hidden] { display: none !important; }
-    .small { font-size: 15px; color: var(--soft); }
+    :focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+
+    /* ---- buttons: flat face, solid edge below, pressed = the edge disappears */
+    .btn { --face: #fff; --edge: var(--line); --text: var(--blue); border: 0; border-radius: 14px; padding: 12px 20px; cursor: pointer;
+           background: var(--face); color: var(--text); font-weight: 800; font-size: 15px; letter-spacing: .06em; text-transform: uppercase;
+           box-shadow: inset 0 0 0 2px var(--edge), 0 4px 0 var(--edge); transition: transform .05s, box-shadow .05s, filter .1s;
+           display: inline-flex; gap: 8px; align-items: center; justify-content: center; }
+    .btn:hover:not(:disabled) { filter: brightness(1.05); }
+    .btn:active:not(:disabled) { transform: translateY(4px); box-shadow: inset 0 0 0 2px var(--edge), 0 0 0 var(--edge); }
+    .btn:disabled { cursor: default; opacity: .5; }
+    .btn.go { --face: var(--green); --edge: var(--green-d); --text: #fff; }
+    .btn.no { --face: var(--red); --edge: var(--red-d); --text: #fff; }
+    .btn.ghost { --face: transparent; --edge: transparent; --text: var(--soft); box-shadow: none; }
+    .btn.big { font-size: 17px; padding: 15px 28px; }
 
     /* ---- header */
-    header { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
-    .brand { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
-    .brand .logo { font-size: 30px; width: 50px; height: 50px; border-radius: 16px; background: var(--sun); display: grid;
-                   place-items: center; box-shadow: 0 4px 0 #d96a1f; flex: none; }
-    .brand h1 { font-size: 22px; line-height: 1.15; font-weight: 800; }
-    .brand span { font-size: 13px; color: var(--soft); display: block; font-weight: 500; }
-    #matrix { display: grid; grid-template-columns: repeat(13, 7px); gap: 2px; background: #15131f; padding: 7px;
-              border-radius: 9px; box-shadow: 0 3px 0 #000; flex: none; }
-    #matrix i { width: 7px; height: 7px; border-radius: 50%; background: #2c2937; transition: background .15s; }
-    #ui-lang { border: 2px solid var(--line); border-radius: 12px; padding: 7px 8px; background: #fff; font-size: 15px; }
+    header { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+    .mark { display: flex; align-items: center; gap: 11px; flex: 1; min-width: 0; font-size: 24px; font-weight: 900; letter-spacing: -.01em; }
+    .mark i { display: grid; grid-template-columns: repeat(3, 8px); gap: 3px; padding: 7px; background: #fff; border-radius: 11px; }
+    .mark i b { width: 8px; height: 8px; border-radius: 50%; background: var(--bg); }
+    .mark i b:nth-child(2), .mark i b:nth-child(4), .mark i b:nth-child(9) { background: var(--flame); }
+    #matrix { display: grid; grid-template-columns: repeat(13, 6px); gap: 2px; background: #0d2426; padding: 7px; border-radius: 8px; flex: none; }
+    #matrix i { width: 6px; height: 6px; border-radius: 50%; background: #234548; }
+    #ui-lang { border: 0; border-radius: 12px; padding: 9px 10px; background: var(--bg-2); color: #fff; font-size: 14px; font-weight: 800; }
 
-    /* ---- cards and buttons */
-    .card { background: var(--card); border: 2px solid var(--line); border-radius: 22px; padding: 20px; margin-bottom: 14px;
-            box-shadow: 0 6px 22px rgba(60, 40, 140, .06); }
-    .card h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .08em; color: var(--soft); margin-bottom: 10px; }
-    .btn { border: 2px solid var(--line); border-bottom-width: 5px; background: #fff; border-radius: 14px; padding: 10px 18px;
-           cursor: pointer; font-weight: 700; transition: transform .06s, border-color .12s, background .12s; }
-    .btn:hover:not(:disabled) { border-color: var(--main); }
-    .btn:active:not(:disabled) { transform: translateY(3px); border-bottom-width: 2px; margin-bottom: 3px; }
-    .btn:disabled { opacity: .45; cursor: default; }
-    .btn.main { background: var(--main); border-color: var(--main-dark); color: #fff; }
-    .btn.main:hover:not(:disabled) { background: #6a5bea; border-color: var(--main-dark); }
-    .btn.quiet { border-color: transparent; background: none; color: var(--soft); font-weight: 600; padding: 10px; }
-    .btn.quiet:hover:not(:disabled) { border-color: transparent; color: var(--ink); }
-    .btn.warn { border-color: #f3c2c6; color: var(--stop); }
-    :focus-visible { outline: 3px solid var(--sun); outline-offset: 2px; }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    /* ---- white panels on the colour */
+    .panel { background: #fff; color: var(--ink); border-radius: 20px; padding: 22px; margin-bottom: 14px; border: 2px solid rgba(20, 70, 70, .12); }
+    .panel h2 { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .09em; color: var(--soft); margin-bottom: 12px; }
+    .small { font-size: 14.5px; color: var(--soft); font-weight: 600; }
 
     /* ---- start screen */
-    .field { margin-bottom: 18px; }
-    .field > label, .field > .label { display: block; font-weight: 700; margin-bottom: 6px; }
-    #student { width: 100%; max-width: 320px; padding: 11px 14px; border: 2px solid var(--line); border-radius: 14px; font-weight: 600; }
-    #levels { display: flex; gap: 6px; flex-wrap: wrap; }
-    #levels button { width: 46px; height: 46px; padding: 0; }
-    #levels button.on, .mode.on { background: var(--main-soft); border-color: var(--main); color: var(--main-dark); }
-    #modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-    .mode { text-align: left; padding: 14px; display: block; font-weight: 500; }
-    .mode .icon { font-size: 30px; line-height: 1; display: block; margin-bottom: 6px; }
-    .mode b { display: block; font-size: 18px; font-weight: 800; }
-    .mode span { font-size: 14.5px; color: var(--soft); line-height: 1.35; display: block; }
-    #start { font-size: 20px; padding: 13px 34px; }
-    details.rules { margin-top: 14px; font-size: 15px; color: var(--soft); }
-    details.rules summary { cursor: pointer; font-weight: 700; }
-    details.rules ul { margin: 6px 0 0; padding-left: 20px; }
+    .hero { margin: 6px 0 20px; }
+    .hero h1 { font-size: 34px; line-height: 1.1; font-weight: 900; letter-spacing: -.01em; }
+    .hero p { color: #d9f1f2; margin-top: 6px; }
+    .field { margin-bottom: 22px; }
+    .field > label, .field > .label { display: block; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .09em;
+                                      color: var(--soft); margin-bottom: 8px; }
+    #student { width: 100%; max-width: 340px; padding: 13px 16px; border: 2px solid var(--line); border-radius: 14px; background: var(--field); font-weight: 700; }
+    #student:focus { outline: none; border-color: var(--blue); background: #fff; }
+    #levels { display: flex; gap: 8px; flex-wrap: wrap; }
+    #levels .btn { width: 48px; height: 46px; padding: 0; font-size: 17px; --text: var(--ink); }
+    #levels .btn.on { --face: var(--blue); --edge: var(--blue-d); --text: #fff; }
+    #modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .mode { border: 0; border-radius: 18px; padding: 16px; text-align: left; cursor: pointer; color: #fff; background: var(--c);
+            box-shadow: 0 5px 0 var(--d); position: relative; transition: transform .05s, box-shadow .05s, filter .1s; }
+    .mode.on { outline: 4px solid var(--ink); outline-offset: 3px; } .mode:hover { filter: brightness(1.06); }
+    .mode:active { transform: translateY(5px); box-shadow: 0 0 0 var(--d); }
+    .mode > svg { font-size: 34px; display: block; margin-bottom: 10px; }
+    .mode b { display: block; font-size: 19px; font-weight: 900; line-height: 1.2; }
+    .mode span { display: block; font-size: 14px; line-height: 1.35; font-weight: 600; margin-top: 4px; opacity: .95; }
+    .mode .tick { position: absolute; top: 12px; right: 12px; width: 26px; height: 26px; border-radius: 50%; background: #fff; color: var(--d);
+                  display: none; place-items: center; font-size: 15px; }
+    .mode.on .tick { display: grid; }
+    .mode.train { --c: var(--blue); --d: var(--blue-d); } .mode.round { --c: var(--amber); --d: var(--amber-d); } .mode.climb { --c: var(--red); --d: var(--red-d); }
+    #start { width: 100%; }
+    .rules { margin-top: 16px; font-size: 14.5px; color: var(--soft); }
+    .rules summary { cursor: pointer; font-weight: 800; color: var(--blue); }
+    .rules ul { margin: 8px 0 0; padding-left: 20px; }
 
-    /* ---- the scoreboard above the problem */
-    #hud { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1.2fr; gap: 10px; margin-bottom: 14px; }
-    .stat { background: #fff; border: 2px solid var(--line); border-radius: 18px; padding: 9px 13px; min-width: 0; position: relative; }
-    .stat small { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--soft); font-weight: 700;
-                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .stat b { font-size: 22px; font-weight: 800; line-height: 1.25; white-space: nowrap; }
-    .meter { height: 8px; border-radius: 4px; background: var(--main-soft); overflow: hidden; margin-top: 4px; }
-    .meter i { display: block; height: 100%; background: linear-gradient(90deg, var(--main), var(--sun)); border-radius: 4px; transition: width .6s; }
-    #pop { position: absolute; right: 10px; top: -6px; color: var(--go); font-weight: 800; font-size: 22px; opacity: 0; pointer-events: none; }
-    #pop.go { animation: pop 1.6s ease-out; }
-    @keyframes pop { 0% { opacity: 0; transform: translateY(14px) scale(.7); } 20% { opacity: 1; transform: translateY(0) scale(1.15); }
-                     70% { opacity: 1; } 100% { opacity: 0; transform: translateY(-26px); } }
-    .hearts span.lost { filter: grayscale(1); opacity: .3; }
-    .pips { display: flex; gap: 5px; align-items: center; height: 27px; }
-    .pips i { width: 20px; height: 20px; border-radius: 50%; background: var(--line); display: grid; place-items: center; font-size: 12px;
-              font-style: normal; font-weight: 800; color: #fff; }
-    .pips i.s3 { background: var(--gold); } .pips i.s2 { background: var(--go); } .pips i.s1 { background: #7fc7a8; }
-    .pips i.s0 { background: #c9c6d9; } .pips i.now { box-shadow: 0 0 0 3px var(--main-soft), 0 0 0 5px var(--main); background: #fff; }
+    /* ---- top bar while playing */
+    #bar { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+    #quit { background: none; border: 0; color: #b4dadc; font-size: 26px; cursor: pointer; padding: 4px; display: grid; }
+    #quit:hover { color: #fff; }
+    #track { flex: 1; height: 16px; border-radius: 8px; background: var(--bg-2); overflow: hidden; }
+    #track i { display: block; height: 100%; min-width: 16px; border-radius: 8px; background: var(--green); transition: width .5s;
+               box-shadow: inset 0 -5px 0 rgba(0, 0, 0, .12), inset 0 4px 0 rgba(255, 255, 255, .25); }
+    .count { display: flex; align-items: center; gap: 5px; font-weight: 900; font-size: 19px; }
+    .count svg { font-size: 23px; }
+    #streak { color: var(--flame); } #streak.cold { color: #8fc0c3; }
+    #points { color: var(--gold); }
+    #lives { color: var(--red); gap: 3px; } #lives .lost { color: rgba(0, 0, 0, .25); }
+    #pills { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+    .pill { font-size: 12.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; background: var(--bg-2); color: #d9f1f2;
+            border-radius: 99px; padding: 4px 12px; }
+    #rank { margin-left: auto; background: none; color: #d9f1f2; padding-right: 0; }
 
     /* ---- the problem */
-    .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-    .chip { font-size: 13.5px; font-weight: 700; background: var(--main-soft); color: var(--main-dark); border-radius: 99px; padding: 3px 12px; }
-    .chip.sun { background: var(--sun-soft); color: #a04a0c; } .chip.grey { background: #f0eff5; color: var(--soft); }
-    #text { font-size: 21px; line-height: 1.5; margin-bottom: 16px; white-space: pre-wrap; font-weight: 500; }
-    #options { display: grid; gap: 9px; grid-template-columns: 1fr 1fr; }
-    #options button { text-align: left; display: flex; gap: 12px; align-items: center; padding: 10px 14px; font-weight: 600; }
+    #text { font-size: 22px; line-height: 1.45; font-weight: 700; white-space: pre-wrap; }
+    #question { padding: 26px; }
+    #options { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; margin-bottom: 14px; }
+    #options button { border: 0; border-radius: 16px; padding: 14px 16px; min-height: 68px; cursor: pointer; text-align: left; display: flex; gap: 14px;
+                      align-items: center; background: var(--c); color: #fff; font-size: 20px; font-weight: 800; box-shadow: 0 5px 0 var(--d);
+                      transition: transform .05s, box-shadow .05s, opacity .15s, filter .1s; }
     #options button:last-child:nth-child(odd) { grid-column: 1 / -1; }
-    #options b { width: 34px; height: 34px; border-radius: 10px; background: var(--main-soft); color: var(--main-dark); display: grid;
-                 place-items: center; flex: none; font-weight: 800; }
-    #options .wrong { border-color: #f3c2c6; background: var(--stop-soft); color: var(--stop); opacity: 1; animation: shake .35s; }
-    #options .wrong b { background: var(--stop); color: #fff; } #options .wrong span { text-decoration: line-through; }
-    #options .right { border-color: var(--go); background: var(--go-soft); color: #0b6e4b; opacity: 1; }
-    #options .right b { background: var(--go); color: #fff; }
-    @keyframes shake { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
-    #feedback { margin-top: 14px; font-weight: 700; border-radius: 14px; padding: 10px 14px; }
-    #feedback:empty { display: none; }
-    #feedback.good { background: var(--go-soft); color: #0b6e4b; } #feedback.bad { background: var(--stop-soft); color: var(--stop); }
-    #feedback.wait { background: var(--main-soft); color: var(--main-dark); }
-    #gained { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
-    #gained span { font-size: 14px; font-weight: 700; border-radius: 99px; padding: 2px 10px; background: #f0eff5; color: var(--soft); }
-    #gained span.plus { background: var(--go-soft); color: #0b6e4b; } #gained span.minus { background: var(--stop-soft); color: var(--stop); }
-    #gained span.sum { background: var(--main); color: #fff; font-size: 16px; padding: 3px 12px; }
-    #gained .stars { font-size: 22px; background: none; padding: 0 6px 0 0; letter-spacing: 2px; }
+    #options button:hover:not(:disabled) { filter: brightness(1.08); }
+    #options button:active:not(:disabled) { transform: translateY(5px); box-shadow: 0 0 0 var(--d); }
+    #options button:disabled { cursor: default; }
+    #options b { width: 38px; height: 38px; border-radius: 11px; background: rgba(255, 255, 255, .25); display: grid; place-items: center; flex: none;
+                 font-weight: 900; font-size: 19px; }
+    #options .a { --c: var(--red); --d: var(--red-d); } #options .b { --c: var(--blue); --d: var(--blue-d); }
+    #options .c { --c: var(--amber); --d: var(--amber-d); } #options .d { --c: var(--green); --d: var(--green-d); }
+    #options .e { --c: var(--violet); --d: var(--violet-d); }
+    #options .out { opacity: .3; }
+    #options .wrong { --c: #4a7578; --d: #3c6164; color: #b5d5d6; animation: shake .35s; } #options .wrong span { text-decoration: line-through; }
+    #options .right { outline: 4px solid #fff; outline-offset: -4px; }
+    #options .right b, #options .wrong b { background: #fff; color: var(--d); font-size: 22px; }
+    @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 
     /* ---- the hint ladder */
-    #steps { display: flex; gap: 6px; margin: 18px 0 4px; }
-    #steps div { flex: 1; text-align: center; font-size: 13px; font-weight: 700; color: var(--soft); border-top: 6px solid var(--line);
-                 padding-top: 5px; line-height: 1.25; }
-    #steps div.done { border-color: var(--main); color: var(--main-dark); }
-    #steps div.last.done { border-color: var(--stop); color: var(--stop); }
-    .rung { border-radius: 16px; background: var(--main-soft); padding: 12px 16px; margin: 10px 0; }
+    #steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+    #steps div { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #b6b6c6; border-top: 6px solid var(--line);
+                 border-radius: 3px 3px 0 0; padding-top: 7px; line-height: 1.3; }
+    #steps div.done { border-color: var(--blue); color: var(--blue); }
+    #steps div.last.done { border-color: var(--red); color: var(--red); }
+    .rung { display: flex; gap: 14px; padding: 14px 0; border-top: 2px solid var(--line); }
     .rung.new { animation: rise .3s; }
     @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
-    .rung h3 { font-size: 15px; margin-bottom: 4px; color: var(--main-dark); font-weight: 800; }
+    .rung > b { width: 34px; height: 34px; border-radius: 50%; background: var(--blue); color: #fff; display: grid; place-items: center; flex: none; font-weight: 900; }
+    .rung.solution > b { background: var(--red); }
+    .rung h3 { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: var(--soft); margin: 6px 0 4px; }
     .rung p { margin: 4px 0; }
-    .rung .example { background: #fff; border-radius: 12px; padding: 10px 12px; }
-    .rung.solution { background: var(--sun-soft); } .rung.solution h3 { color: #a04a0c; }
-    #actions { margin-top: 16px; }
-    #actions .spacer { flex: 1; }
+    .rung .example { background: var(--field); border-radius: 12px; padding: 12px 14px; margin: 6px 0; }
+
+    /* ---- the sheet at the bottom: feedback and the next step */
+    #sheet { position: fixed; left: 0; right: 0; bottom: 0; background: #fff; color: var(--ink); border-top: 2px solid var(--line); z-index: 4; }
+    #sheet > div { max-width: 860px; margin: 0 auto; padding: 16px; display: flex; gap: 14px; align-items: center; }
+    #sheet .badge { width: 54px; height: 54px; border-radius: 50%; background: #fff; display: none; place-items: center; font-size: 28px; flex: none; }
+    #sheet .say { flex: 1; min-width: 0; }
+    #sheet h3 { font-size: 21px; font-weight: 900; line-height: 1.2; }
+    #sheet p { font-size: 15px; font-weight: 700; }
+    #sheet .buttons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    #sheet.good { background: var(--green-bg); border-color: var(--green-bg); color: var(--green-ink); }
+    #sheet.bad { background: var(--red-bg); border-color: var(--red-bg); color: var(--red-ink); }
+    #sheet.good .badge, #sheet.bad .badge { display: grid; }
+    #sheet.good .badge { color: var(--green); } #sheet.bad .badge { color: var(--red); }
+    #gained { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 5px; align-items: center; }
+    #gained span { font-size: 13px; font-weight: 800; border-radius: 99px; padding: 1px 9px; background: rgba(255, 255, 255, .7); }
+    #gained .stars { background: none; padding: 0 4px 0 0; font-size: 20px; color: var(--amber); display: flex; }
+    #gained .stars .off { color: #b7d9a8; }
 
     /* ---- end of a game */
-    #summary { text-align: center; border-color: var(--gold); background: linear-gradient(#fffaf0, #fff); }
-    #summary .big { font-size: 46px; letter-spacing: 6px; line-height: 1.2; }
-    #summary .groups { font-size: 26px; letter-spacing: 1px; word-spacing: 10px; color: var(--gold); line-height: 1.8; }
-    #summary h3 { font-size: 26px; font-weight: 800; margin: 4px 0; }
-    #summary .numbers { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 14px 0 16px; }
-    #summary .numbers div { background: var(--main-soft); border-radius: 14px; padding: 8px 18px; }
-    #summary .numbers b { display: block; font-size: 24px; font-weight: 800; color: var(--main-dark); }
-    #summary .numbers small { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--soft); font-weight: 700; }
-    #summary .row { justify-content: center; }
+    #summary { text-align: center; padding: 30px 22px; }
+    #sum-stars { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; font-size: 30px; color: var(--gold); margin-bottom: 10px; }
+    #sum-stars span { display: flex; } #sum-stars .off { color: var(--line); } #sum-stars .peak { font-size: 64px; color: var(--red); }
+    #summary h3 { font-size: 30px; font-weight: 900; }
+    #sum-numbers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 20px; }
+    #sum-numbers div { border-radius: 16px; background: var(--c); padding: 3px; color: #fff; }
+    #sum-numbers small { display: block; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; padding: 4px 0 5px; }
+    #sum-numbers b { display: block; background: #fff; color: var(--c); border-radius: 13px; font-size: 26px; font-weight: 900; padding: 10px 0; }
 
     /* ---- progress and the table of this board */
     .two { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; align-items: start; }
-    .bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: #eee; flex: 1; min-width: 60px; }
-    .bar span:nth-child(1) { background: var(--go); } .bar span:nth-child(2) { background: var(--gold); } .bar span:nth-child(3) { background: #cfccde; }
-    .topic { display: flex; gap: 10px; align-items: center; font-size: 15px; margin: 6px 0; }
-    .topic label { width: 170px; font-weight: 600; } .topic .count { width: 58px; text-align: right; color: var(--soft); white-space: nowrap; }
-    .table { list-style: none; margin: 0; padding: 0; }
-    .table li { display: flex; gap: 10px; align-items: center; padding: 6px 10px; border-radius: 12px; font-weight: 600; }
-    .table li.me { background: var(--main-soft); }
-    .table li i { font-style: normal; width: 26px; text-align: center; } .table li span { flex: 1; overflow: hidden; text-overflow: ellipsis; }
-    .table li b { font-weight: 800; }
+    .bar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--line); flex: 1; min-width: 60px; }
+    .bar span:nth-child(1) { background: var(--green); } .bar span:nth-child(2) { background: var(--amber); } .bar span:nth-child(3) { background: #cfcfdb; }
+    .topic { display: flex; gap: 10px; align-items: center; font-size: 15px; margin: 8px 0; }
+    .topic label { width: 170px; font-weight: 700; } .topic .n { width: 62px; text-align: right; color: var(--soft); white-space: nowrap; }
+    .topic .n svg { color: var(--amber); }
+    .table { list-style: none; }
+    .table li { display: flex; gap: 12px; align-items: center; padding: 8px 10px; border-radius: 12px; font-weight: 800; }
+    .table li + li { margin-top: 2px; }
+    .table li.me { background: #e7f0fd; color: var(--blue-d); }
+    .table li i { font-style: normal; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; background: var(--field); color: var(--soft); flex: none; }
+    .table li:nth-child(1) i { background: var(--gold); color: #6b4e00; } .table li:nth-child(2) i { background: #cfd3dc; color: #474b57; }
+    .table li:nth-child(3) i { background: #e0a070; color: #5a3212; }
+    .table li span { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+    .foot { text-align: center; font-size: 14px; color: var(--soft); } .foot a { color: var(--bg); }
 
     #confetti { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
     #confetti i { position: absolute; top: -20px; width: 10px; height: 14px; border-radius: 3px; animation: fall 1.7s ease-in forwards; }
@@ -156,32 +184,31 @@
 
     @media (max-width: 640px) {
       body { font-size: 17px; }
-      #modes, .two { grid-template-columns: 1fr; }
-      #hud { grid-template-columns: 1fr 1fr; }
-      #options { grid-template-columns: 1fr; }
-      .brand span { display: none; }
-      #matrix { grid-template-columns: repeat(13, 5px); } #matrix i { width: 5px; height: 5px; }
-    }
-    @media (max-width: 460px) {
-      .brand h1 { display: none; }
+      #modes, .two, #options { grid-template-columns: 1fr; }
+      #text { font-size: 20px; } #question { padding: 20px; }
+      .hero h1 { font-size: 28px; }
+      .mark span { display: none; }
       .topic label { width: 120px; }
+      #sheet > div { flex-wrap: wrap; } #sheet .buttons { width: 100%; } #sheet .buttons .btn { flex: 1; }
+      #rank { display: none; }
     }
     @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
   </style>
 </head>
 <body>
   <header>
-    <div class="brand">
-      <div class="logo" aria-hidden="true">🦘</div>
-      <h1><span data-t="tagline">A math coach that lives on this board</span><b data-t="title">Math matrix</b></h1>
-    </div>
+    <div class="mark"><i aria-hidden="true"><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b></i><span>math matrix</span></div>
     <div id="matrix" title="What the board's LED matrix shows"></div>
-    <select id="ui-lang" aria-label="Language"><option value="eng">English</option><option value="cat">Català</option></select>
+    <select id="ui-lang" aria-label="Language"><option value="eng">EN</option><option value="cat">CA</option></select>
   </header>
 
   <!-- ============ choose a game -->
   <main id="home">
-    <div class="card">
+    <div class="hero">
+      <h1 data-t="heroTitle">Ready to train your brain?</h1>
+      <p data-t="tagline">A math coach that lives on this board</p>
+    </div>
+    <div class="panel">
       <div class="field">
         <label for="student" data-t="who">Who is playing?</label>
         <input id="student" type="text" maxlength="24" autocomplete="off">
@@ -194,97 +221,98 @@
         <div class="label" data-t="pickMode">Choose a game</div>
         <div id="modes"></div>
       </div>
-      <div class="row">
-        <button class="btn main" id="start" data-t="start">Play</button>
-        <button class="btn quiet" id="resume" hidden data-t="resume">Back to my game</button>
-      </div>
+      <button class="btn go big" id="start" data-t="start">Play</button>
+      <button class="btn ghost" id="resume" hidden data-t="resume" style="width:100%;margin-top:8px">Back to my game</button>
       <details class="rules">
         <summary data-t="rulesTitle">How do points work?</summary>
         <ul id="rules"></ul>
       </details>
-      <p class="small" style="margin-top:12px" data-t="private">Everything stays on this board. Nothing is sent to the internet.</p>
     </div>
-    <div class="card" id="home-board-card" hidden>
+    <div class="panel" id="home-board-card" hidden>
       <h2 data-t="boardTitle">Top players on this board</h2>
       <ol id="home-board" class="table"></ol>
     </div>
+    <p class="foot" style="margin-bottom:8px" data-t="private">Everything stays on this board. Nothing is sent to the internet.</p>
   </main>
 
   <!-- ============ play -->
   <main id="game" hidden>
-    <div id="hud">
-      <div class="stat"><small id="rank-name"></small><b id="total"></b><span id="pop"></span>
-        <div class="meter"><i id="rank-meter"></i></div></div>
-      <div class="stat"><small data-t="streak">In a row</small><b id="streak"></b></div>
-      <div class="stat"><small data-t="level">Level</small><b id="level-now"></b></div>
-      <div class="stat"><small id="mode-name"></small><div id="mode-stat"></div></div>
+    <div id="bar">
+      <button id="quit" aria-label="Change game"></button>
+      <div id="track"><i></i></div>
+      <div class="count" id="streak"></div>
+      <div class="count" id="points"></div>
+      <div class="count" id="lives" hidden></div>
+    </div>
+    <div id="pills">
+      <span class="pill" id="pill-mode"></span><span class="pill" id="pill-level"></span><span class="pill" id="pill-topic"></span>
+      <span class="pill" id="pill-id"></span><span class="pill" id="rank"></span>
     </div>
 
-    <div class="card" id="summary" hidden>
-      <div class="big" id="sum-stars"></div>
+    <div class="panel" id="summary" hidden>
+      <div id="sum-stars"></div>
       <h3 id="sum-title"></h3>
       <p id="sum-text" class="small"></p>
-      <div class="numbers" id="sum-numbers"></div>
-      <div class="row">
-        <button class="btn main" id="again" data-t="again">Play again</button>
-        <button class="btn" id="change2" data-t="change">Change game</button>
-      </div>
+      <div id="sum-numbers"></div>
     </div>
 
-    <div class="card" id="problem-card">
-      <div class="chips"><span class="chip" id="chip-level"></span><span class="chip sun" id="chip-topic"></span><span class="chip grey" id="chip-id"></span></div>
-      <p id="text"></p>
-      <div id="options"></div>
-      <p id="feedback" role="status"></p>
-      <div id="gained"></div>
+    <div class="panel" id="question"><p id="text"></p></div>
+    <div id="options"></div>
+
+    <div class="panel" id="hints" hidden>
       <div id="steps"></div>
       <div id="ladder"></div>
-      <div class="row" id="actions">
-        <button class="btn" id="hint"></button>
-        <button class="btn warn" id="solution" hidden data-t="solution">Show me the solution</button>
-        <button class="btn main" id="next" hidden data-t="next">Next problem</button>
-        <span class="spacer"></span>
-        <button class="btn quiet" id="skip" data-t="skip">Skip</button>
-        <button class="btn quiet" id="change" data-t="change">Change game</button>
-      </div>
     </div>
 
     <div class="two">
-      <div class="card" id="profile-card" hidden>
+      <div class="panel" id="profile-card" hidden>
         <h2 data-t="progress">Your progress</h2>
         <div id="profile"></div>
-        <p class="small" style="margin-top:8px" data-t="legend">Green: solved alone. Yellow: with help. Grey: not yet. 🏅 three solved alone.</p>
+        <p class="small" style="margin-top:10px" data-t="legend"></p>
       </div>
-      <div class="card" id="board-card" hidden>
+      <div class="panel" id="board-card" hidden>
         <h2 data-t="boardTitle">Top players on this board</h2>
         <ol id="board" class="table"></ol>
       </div>
     </div>
+
+    <div id="sheet"><div>
+      <div class="badge" id="sheet-badge"></div>
+      <div class="say"><h3 id="sheet-title" role="status"></h3><p id="sheet-text"></p><div id="gained"></div></div>
+      <div class="buttons">
+        <button class="btn ghost" id="skip" data-t="skip">Skip</button>
+        <button class="btn" id="hint"></button>
+        <button class="btn no" id="solution" hidden data-t="solution">Show me the solution</button>
+        <button class="btn" id="change" hidden data-t="change">Change game</button>
+        <button class="btn go" id="next" hidden data-t="next">Continue</button>
+        <button class="btn go" id="again" hidden data-t="again">Play again</button>
+      </div>
+    </div></div>
   </main>
 
-  <p class="small" style="text-align:center"><a href="draw.html" data-t="draw">Write or draw on the LED matrix</a></p>
+  <p class="foot"><a href="draw.html" data-t="draw">Write or draw on the LED matrix</a></p>
   <div id="confetti" aria-hidden="true"></div>
 
   <script>
     const T = {
       eng: { title: "Math matrix", tagline: "A math coach that lives on this board", who: "Who is playing?", name: "Your name",
         pickLevel: "Starting level", pickMode: "Choose a game", start: "Play", resume: "Back to my game", level: "Level",
-        solution: "Show me the solution", next: "Next problem", skip: "Skip", change: "Change game", again: "Play again",
+        solution: "Show me the solution", next: "Continue", heroTitle: "Ready to train your brain?", wrongTitle: "Not quite", revealedTitle: "The solution", skip: "Skip", change: "Change game", again: "Play again",
         progress: "Your progress", private: "Everything stays on this board. Nothing is sent to the internet.",
-        legend: "Green: solved alone. Yellow: with help. Grey: not yet. 🏅 three solved alone.", draw: "Write or draw on the LED matrix",
+        legend: "Green: solved alone. Yellow: with help. Grey: not yet. A medal: three solved alone.", draw: "Write or draw on the LED matrix",
         boardTitle: "Top players on this board", streak: "In a row", pts: "points", session: "This game",
-        modes: { train: ["🎯", "Free practice", "No end and no pressure. The level follows you."],
-                 round: ["⭐", "Round of 5", "Five problems. How many stars can you collect?"],
-                 climb: ["🏔️", "The climb", "Three lives. Each wrong answer costs one. How high can you get?"] },
+        modes: { train: ["target", "Free practice", "No end and no pressure. The level follows you."],
+                 round: ["star", "Round of 5", "Five problems. How many stars can you collect?"],
+                 climb: ["peak", "The climb", "Three lives. Each wrong answer costs one. How high can you get?"] },
         ranks: ["Joey", "Hopper", "Jumper", "Kangaroo", "Super Kangaroo"],
         rulesTitle: "How do points work?",
         rules: ["Solving a problem: 100 points.", "Each hint: 15 points less. Each wrong answer: 25 less. So asking beats guessing!",
                 "Harder problems: 10 extra points per level.", "Solving several in a row (at most one wrong answer each): up to 50 extra points.",
                 "Three stars: right at the first try, with at most the first hint."],
-        hint: (n, cost) => `💡 Hint ${n} of 3  (−${cost})`, noHints: "No more hints", thinking: "The board is thinking of a hint…",
-        right: "Correct! Well done.", rightHelp: "Correct! You got there with some help.", wrong: "Not that one. Think again, or ask for a hint: a hint costs less than a guess.",
-        wrongLife: (n) => `Not that one. ${n} ${n === 1 ? "life" : "lives"} left: a hint is safer than a guess.`,
-        revealed: "Here is the solution. The next one will be a bit easier.", lvl: (n) => `Level ${n}`,
+        hint: (n, cost) => `Hint ${n}/3 · −${cost}`, noHints: "No more hints", thinking: "The board is thinking of a hint…",
+        right: "Correct!", rightHelp: "Correct, with some help!", wrong: "Think again, or ask for a hint: a hint costs less than a guess.",
+        wrongLife: (n) => `${n} ${n === 1 ? "life" : "lives"} left. A hint is safer than a guess.`,
+        revealed: "The next one will be a bit easier.", lvl: (n) => `Level ${n}`,
         steps: ["Similar problem", "Method", "Model's hint", "Solution"],
         r1: "Hint 1 · A similar problem, already solved", r1easier: "This one is easier. Can you use the same idea?",
         r1same: "Same level, same kind of thinking. Can you use the same idea?", r1none: "No similar problem found for this one.",
@@ -301,22 +329,22 @@
           sequences_patterns: "Patterns", spatial_visual: "Shapes in space", graphs_paths: "Paths", probability: "Chance", other: "Problem solving" } },
       cat: { title: "Math matrix", tagline: "Un entrenador de mates que viu en aquesta placa", who: "Qui juga?", name: "El teu nom",
         pickLevel: "Nivell inicial", pickMode: "Tria un joc", start: "Juga", resume: "Torna al meu joc", level: "Nivell",
-        solution: "Ensenya'm la solució", next: "Problema següent", skip: "Salta", change: "Canvia de joc", again: "Torna-hi",
+        solution: "Ensenya'm la solució", next: "Continua", heroTitle: "A punt per entrenar el cervell?", wrongTitle: "No del tot", revealedTitle: "La solució", skip: "Salta", change: "Canvia de joc", again: "Torna-hi",
         progress: "El teu progrés", private: "Tot es queda en aquesta placa. No s'envia res a internet.",
-        legend: "Verd: resolt sense ajuda. Groc: amb ajuda. Gris: encara no. 🏅 tres resolts sense ajuda.", draw: "Escriu o dibuixa a la matriu de LEDs",
+        legend: "Verd: resolt sense ajuda. Groc: amb ajuda. Gris: encara no. Una medalla: tres resolts sense ajuda.", draw: "Escriu o dibuixa a la matriu de LEDs",
         boardTitle: "Millors jugadors d'aquesta placa", streak: "Seguits", pts: "punts", session: "Aquest joc",
-        modes: { train: ["🎯", "Pràctica lliure", "Sense final ni pressa. El nivell et segueix."],
-                 round: ["⭐", "Ronda de 5", "Cinc problemes. Quantes estrelles pots aconseguir?"],
-                 climb: ["🏔️", "L'escalada", "Tres vides. Cada resposta errònia en costa una. Fins on arribes?"] },
+        modes: { train: ["target", "Pràctica lliure", "Sense final ni pressa. El nivell et segueix."],
+                 round: ["star", "Ronda de 5", "Cinc problemes. Quantes estrelles pots aconseguir?"],
+                 climb: ["peak", "L'escalada", "Tres vides. Cada resposta errònia en costa una. Fins on arribes?"] },
         ranks: ["Cangur petit", "Saltador", "Gran saltador", "Cangur", "Supercangur"],
         rulesTitle: "Com funcionen els punts?",
         rules: ["Resoldre un problema: 100 punts.", "Cada pista: 15 punts menys. Cada resposta errònia: 25 menys. Val més preguntar que endevinar!",
                 "Problemes més difícils: 10 punts extra per nivell.", "Resoldre'n uns quants seguits (amb un error com a màxim a cada un): fins a 50 punts extra.",
                 "Tres estrelles: encertar a la primera, amb la primera pista com a màxim."],
-        hint: (n, cost) => `💡 Pista ${n} de 3  (−${cost})`, noHints: "No hi ha més pistes", thinking: "La placa està pensant una pista…",
-        right: "Correcte! Molt bé.", rightHelp: "Correcte! Hi has arribat amb una mica d'ajuda.", wrong: "Aquesta no. Torna-hi a pensar, o demana una pista: una pista costa menys que provar sort.",
-        wrongLife: (n) => `Aquesta no. Et ${n === 1 ? "queda 1 vida" : "queden " + n + " vides"}: una pista és més segura que provar sort.`,
-        revealed: "Aquí tens la solució. El següent serà una mica més fàcil.", lvl: (n) => `Nivell ${n}`,
+        hint: (n, cost) => `Pista ${n}/3 · −${cost}`, noHints: "No hi ha més pistes", thinking: "La placa està pensant una pista…",
+        right: "Correcte!", rightHelp: "Correcte, amb una mica d'ajuda!", wrong: "Torna-hi a pensar, o demana una pista: una pista costa menys que provar sort.",
+        wrongLife: (n) => `Et ${n === 1 ? "queda 1 vida" : "queden " + n + " vides"}. Una pista és més segura que provar sort.`,
+        revealed: "El següent serà una mica més fàcil.", lvl: (n) => `Nivell ${n}`,
         steps: ["Problema semblant", "Mètode", "Pista del model", "Solució"],
         r1: "Pista 1 · Un problema semblant, ja resolt", r1easier: "Aquest és més fàcil. Pots fer servir la mateixa idea?",
         r1same: "Mateix nivell, mateixa manera de pensar. Pots fer servir la mateixa idea?", r1none: "No hem trobat cap problema semblant.",
@@ -332,7 +360,26 @@
           solid_geometry: "Cossos geomètrics", combinatorics: "Comptar casos", logic: "Lògica", grids_tables: "Quadrícules i taules", algebra: "Àlgebra",
           sequences_patterns: "Patrons", spatial_visual: "Formes a l'espai", graphs_paths: "Camins", probability: "Probabilitat", other: "Resolució de problemes" } },
     };
-    const HINT_COST = 15, MEDALS = ["🥇", "🥈", "🥉"];
+    // Icons are drawn here, so the page needs no image files and looks the same on every device.
+    const PATHS = {
+      heart: '<path d="M12 21s-7.6-4.7-9.7-9.4C.8 8.200 3 4.500 6.600 4.500c2 0 3.600 1 5.400 3 1.800-2 3.400-3 5.400-3 3.600 0 5.800 3.700 4.300 7.100C19.600 16.300 12 21 12 21z"/>',
+      flame: '<path d="M12.300 1.800c.9 3.700 5.700 5.700 5.700 11.200a6 6 0 0 1-12 0c0-2 .8-3.600 1.900-4.800.4 1.600 1.200 2.500 2.200 2.900-.300-3.300.600-6.700 2.200-9.300z"/>',
+      star: '<path d="M12 2.200l3 6.200 6.800.9-5 4.700 1.300 6.700L12 17.500 5.900 20.700l1.300-6.700-5-4.700 6.800-.9z"/>',
+      bolt: '<path d="M13.500 1.500L4 13.500h6.200L9 22.500l10-13h-6.300z"/>',
+      peak: '<path d="M1.500 20.500L9 7l3.600 5.400L15 9l7.500 11.500z"/>',
+      target: '<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 4a6 6 0 1 1 0 12 6 6 0 0 1 0-12zm0 3.500a2.500 2.500 0 1 0 0 5 2.500 2.500 0 0 0 0-5z" fill-rule="evenodd"/>',
+      bulb: '<path d="M12 2.500a6.500 6.500 0 0 0-3.800 11.800V16h7.600v-1.700A6.500 6.500 0 0 0 12 2.500zM8.800 17.800h6.400v1.400a2 2 0 0 1-2 2h-2.400a2 2 0 0 1-2-2z"/>',
+      medal: '<path d="M7 2h10l-3 7.200a6.500 6.500 0 1 1-4 0zm5 9.500a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" fill-rule="evenodd"/>',
+    };
+    const LINES = { check: '<path d="M5 12.800l4.500 4.500L19 7.500"/>', cross: '<path d="M6 6l12 12M18 6L6 18"/>' };
+    function icon(name, cls) {
+      const box = document.createElement("span");
+      box.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" class="${LINES[name] ? "line" : ""}">${PATHS[name] || LINES[name]}</svg>`;
+      const svg = box.firstChild;
+      if (cls) svg.classList.add(cls);
+      return svg;
+    }
+    const HINT_COST = 15;
     const $ = (id) => document.getElementById(id);
     const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
     const keep = (key, value) => { try { localStorage.setItem(key, value); } catch (e) {} };
@@ -345,10 +392,12 @@
 
     for (let i = 0; i < 8 * 13; i++) $("matrix").append(document.createElement("i"));
     $("ui-lang").value = lang;
+    $("quit").append(icon("cross"));
 
+    function problemSay(text) { $("sheet").className = "bad"; $("sheet-title").textContent = text; }
     const api = async (path) => {
       try { render(await (await fetch("/api/" + path)).json()); }
-      catch (e) { $("feedback").className = "bad"; $("feedback").textContent = String(e); }
+      catch (e) { problemSay(String(e)); }
     };
 
     // ---- the start screen
@@ -356,16 +405,18 @@
       document.documentElement.lang = lang === "cat" ? "ca" : "en";
       document.querySelectorAll("[data-t]").forEach((e) => { e.textContent = t()[e.dataset.t]; });
       $("student").placeholder = t().name;
+      $("quit").setAttribute("aria-label", t().change);
       $("levels").replaceChildren(...[0, 1, 2, 3, 4, 5, 6, 7].map((n) => {
         const b = el("button", String(n), "btn" + (n === level ? " on" : ""));
         b.setAttribute("aria-pressed", n === level);
         b.onclick = () => { level = n; keep("level", n); renderHome(); };
         return b;
       }));
-      $("modes").replaceChildren(...Object.entries(t().modes).map(([key, [icon, name, text]]) => {
-        const b = el("button", null, "btn mode" + (key === mode ? " on" : ""));
+      $("modes").replaceChildren(...Object.entries(t().modes).map(([key, [picture, name, text]]) => {
+        const b = el("button", null, `mode ${key}` + (key === mode ? " on" : ""));
         b.setAttribute("aria-pressed", key === mode);
-        b.append(el("span", icon, "icon"), el("b", name), el("span", text));
+        const tick = el("i", null, "tick"); tick.append(icon("check"));
+        b.append(icon(picture), el("b", name), el("span", text), tick);
         b.onclick = () => { mode = key; keep("mode", key); renderHome(); };
         return b;
       }));
@@ -379,7 +430,7 @@
     function table(list, rows) {
       list.replaceChildren(...rows.map(([name, points], i) => {
         const li = el("li", null, state && name === state.student ? "me" : "");
-        li.append(el("i", MEDALS[i] || String(i + 1)), el("span", name), el("b", String(points)));
+        li.append(el("i", String(i + 1)), el("span", name), el("b", String(points)));
         return li;
       }));
     }
@@ -395,8 +446,8 @@
 
     function confetti() {
       if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-      const colors = ["#5b4bdb", "#ff8a3d", "#f5b301", "#12996a", "#d93f4c"];
-      for (let i = 0; i < 36; i++) {
+      const colors = ["#2f7de1", "#f2a900", "#2fb344", "#e5484d", "#7c5ce0", "#ffffff"];
+      for (let i = 0; i < 40; i++) {
         const piece = document.createElement("i");
         piece.style.left = (Math.random() * 100) + "%";
         piece.style.background = colors[i % colors.length];
@@ -406,16 +457,20 @@
       }
     }
 
-    function starText(n, of = 3) { return "★".repeat(n) + "☆".repeat(of - n); }
+    function starRow(n) {   // three stars, n of them earned
+      const row = el("span", null, "stars");
+      for (let i = 0; i < 3; i++) row.append(icon("star", i < n ? "on" : "off"));
+      return row;
+    }
 
     // ---- everything the board sends back is drawn here
     function render(s) {
-      if (s.error) { $("feedback").className = "bad"; $("feedback").textContent = s.error; return; }
+      if (s.error) { problemSay(s.error); return; }
       state = s;
       armed = false;
       [...$("matrix").children].forEach((dot, i) => {
         const v = s.matrix[Math.floor(i / 13)][i % 13];
-        dot.style.background = v ? `rgba(255,70,56,${0.3 + 0.1 * v})` : "#2c2937";
+        dot.style.background = v ? `rgba(255,70,56,${0.3 + 0.1 * v})` : "#234548";
       });
       const p = s.problem, g = s.game;
       if (!p || !g) home = true;
@@ -423,79 +478,51 @@
       $("game").hidden = home;
       renderHome();
       if (home) return;
-      const open = s.status === "open";
+      const open = s.status === "open", solved = s.status === "solved";
 
-      // the scoreboard
-      $("rank-name").textContent = t().ranks[g.rank] + (g.rank_next == null ? "" : ` → ${g.rank_next}`);
-      $("total").textContent = `${g.total} ${t().pts}`;
-      $("rank-meter").style.width = (g.rank_next == null ? 100 : 100 * (g.total - g.rank_from) / (g.rank_next - g.rank_from)) + "%";
-      $("streak").textContent = (g.streak >= 2 ? "🔥 " : "") + g.streak;
-      $("level-now").textContent = s.level;
-      $("mode-name").textContent = t().modes[g.mode][1];
-      const stat = $("mode-stat");
-      if (g.mode === "climb") {
-        stat.className = "hearts"; stat.style.fontSize = "20px";
-        stat.replaceChildren(...Array.from({ length: g.max_lives }, (_, i) => el("span", "❤️", i < g.lives ? "" : "lost")));
-      } else if (g.mode === "round") {
-        stat.className = "pips"; stat.style.fontSize = "";
-        stat.replaceChildren(...Array.from({ length: g.round_size }, (_, i) =>
-          i < g.results.length ? el("i", g.results[i] ? "★" : "·", "s" + g.results[i]) : el("i", null, i === g.results.length && open ? "now" : "")));
-      } else {
-        stat.className = ""; stat.style.fontSize = "";
-        stat.replaceChildren(el("b", `+${g.points}`));
-      }
+      // the top bar
+      const rankPart = g.rank_next == null ? 1 : (g.total - g.rank_from) / (g.rank_next - g.rank_from);
+      const part = g.mode === "round" ? g.results.length / g.round_size : rankPart;
+      $("track").firstChild.style.width = Math.round(100 * part) + "%";
+      $("streak").replaceChildren(icon("flame"), String(g.streak));
+      $("streak").className = "count" + (g.streak ? "" : " cold");
+      $("streak").title = t().streak;
+      $("points").replaceChildren(icon("bolt"), String(g.total));
+      $("points").title = t().pts;
+      $("lives").hidden = g.mode !== "climb";
+      $("lives").replaceChildren(...Array.from({ length: g.max_lives }, (_, i) => icon("heart", i < g.lives ? "on" : "lost")));
+      $("pill-mode").textContent = t().modes[g.mode][1] + (g.mode === "round" ? ` · ${Math.min(g.results.length + open, g.round_size)}/${g.round_size}` : "");
+      $("pill-level").textContent = t().lvl(p.level);
+      $("pill-topic").textContent = t().topics[p.topic] || p.topic;
+      $("pill-id").textContent = `Kangaroo ${p.year}`;
+      $("rank").textContent = t().ranks[g.rank] + (g.rank_next == null ? "" : ` · ${g.total}/${g.rank_next}`);
 
       // the problem
-      $("chip-level").textContent = t().lvl(p.level);
-      $("chip-topic").textContent = t().topics[p.topic] || p.topic;
-      $("chip-id").textContent = `Kangaroo ${p.year}`;
       $("text").textContent = p.text;
       $("options").replaceChildren(...Object.entries(p.options).map(([letter, value]) => {
-        const b = el("button", null, "btn");
-        b.append(el("b", letter), el("span", value));
-        const tried = s.tries.includes(letter);
-        if (tried || s.label) b.classList.add(letter === s.label ? "right" : tried ? "wrong" : "x");
+        const b = el("button", null, letter.toLowerCase());
+        const tried = s.tries.includes(letter), right = letter === s.label;
+        const mark = el("b", right || tried ? null : letter);
+        if (right) mark.append(icon("check")); else if (tried) mark.append(icon("cross"));
+        b.append(mark, el("span", value));
+        if (right) b.classList.add("right"); else if (tried) b.classList.add("wrong"); else if (s.label) b.classList.add("out");
         b.disabled = !open || tried || s.busy;
         b.onclick = () => api("answer/" + letter);
         return b;
       }));
-      const fb = $("feedback");
-      const lastTry = s.tries[s.tries.length - 1];
-      fb.className = s.status === "solved" ? "good" : s.status === "revealed" || (open && lastTry && !s.busy) ? "bad" : "wait";
-      fb.textContent = s.status === "solved" ? (s.last === "alone" ? t().right : t().rightHelp)
-        : s.status === "revealed" ? (g.over ? "" : t().revealed) : s.busy ? t().thinking
-        : lastTry ? (g.mode === "climb" ? t().wrongLife(g.lives) : t().wrong) : "";
-
-      // what this problem was worth
-      const gained = $("gained");
-      gained.replaceChildren();
-      if (s.status === "solved" && g.gained) {
-        gained.append(el("span", starText(g.results[g.results.length - 1]), "stars"));
-        for (const key of ["solved", "hints", "wrong", "level", "streak"]) {
-          const v = g.gained[key];
-          if (v) gained.append(el("span", `${v > 0 ? "+" : "−"}${Math.abs(v)} ${t().g[key]}`, v > 0 ? "plus" : "minus"));
-        }
-        gained.append(el("span", `= ${g.gained.total} ${t().pts}`, "sum"));
-        const key = p.id + "/" + g.results.length + "/" + g.total;
-        if (celebrated !== key) {
-          celebrated = key;
-          if (g.results[g.results.length - 1] >= 2) confetti();   // no party for clicking through the options
-          const pop = $("pop");
-          pop.textContent = "+" + g.gained.total;
-          pop.classList.remove("go"); void pop.offsetWidth; pop.classList.add("go");
-        }
-      }
 
       // the ladder
       const climbed = s.hints.filter((h) => h.rung <= 3).length;
       const shown = s.hints.some((h) => h.kind === "solution");
-      $("steps").hidden = !s.hints.length;
+      $("hints").hidden = !s.hints.length;
       $("steps").replaceChildren(...t().steps.map((name, i) =>
         el("div", name, (i < 3 ? (i < climbed ? "done" : "") : "last" + (shown ? " done" : "")))));
       const rungs = p.id + "/" + s.hints.length, fresh = rungs !== lastRungs;   // only a new rung slides in
       lastRungs = rungs;
       $("ladder").replaceChildren(...s.hints.map((h, i) => {
-        const box = el("div", null, "rung" + (h.kind === "solution" ? " solution" : "") + (fresh && i === s.hints.length - 1 ? " new" : ""));
+        const row = el("div", null, "rung" + (h.kind === "solution" ? " solution" : "") + (fresh && i === s.hints.length - 1 ? " new" : ""));
+        const box = el("div");
+        row.append(el("b", h.kind === "solution" ? "!" : String(h.rung)), box);
         if (h.kind === "example") { box.append(el("h3", t().r1)); example(box, h); }
         if (h.kind === "method") box.append(el("h3", t().r2), el("p", h.topic + ". " + h.text));
         if (h.kind === "hint") {
@@ -508,27 +535,55 @@
           box.append(el("h3", t().r4), el("p", `${t().answer}: ${h.label}) ${h.answer}`));
           if (h.explanation) box.append(el("p", h.explanation));
         }
-        return box;
+        return row;
       }));
-      $("hint").textContent = climbed < 3 ? t().hint(climbed + 1, HINT_COST) : t().noHints;
-      $("hint").disabled = !open || s.busy || climbed >= 3;
-      $("hint").hidden = !open;
+
+      // the sheet at the bottom: what happened, and what to do next
+      const lastTry = s.tries[s.tries.length - 1];
+      const missed = open && lastTry && !s.busy;
+      $("sheet").className = solved ? "good" : s.status === "revealed" || missed ? "bad" : "";
+      $("sheet-badge").replaceChildren(icon(solved ? "check" : "cross"));
+      $("sheet-title").textContent = solved ? (s.last === "alone" ? t().right : t().rightHelp)
+        : s.status === "revealed" ? (g.over ? (g.mode === "round" ? t().roundOver : t().climbOver) : t().revealedTitle)
+        : s.busy ? t().thinking : missed ? t().wrongTitle : "";
+      $("sheet-text").textContent = s.status === "revealed" && !g.over ? t().revealed
+        : missed ? (g.mode === "climb" ? t().wrongLife(g.lives) : t().wrong) : "";
+      const gained = $("gained");
+      gained.replaceChildren();
+      if (solved && g.gained) {
+        const got = g.results[g.results.length - 1];
+        gained.append(starRow(got));
+        for (const key of ["hints", "wrong", "level", "streak"]) {
+          const v = g.gained[key];
+          if (v) gained.append(el("span", `${v > 0 ? "+" : "−"}${Math.abs(v)} ${t().g[key]}`));
+        }
+        $("sheet-title").textContent += `  +${g.gained.total}`;
+        const key = p.id + "/" + g.results.length + "/" + g.total;
+        if (celebrated !== key) {
+          celebrated = key;
+          if (got >= 2) confetti();   // no party for clicking through the options
+        }
+      }
+      $("hint").replaceChildren(icon("bulb"), climbed < 3 ? t().hint(climbed + 1, HINT_COST) : t().noHints);
+      $("hint").disabled = s.busy || climbed >= 3;
+      $("hint").hidden = !open || (climbed >= 3 && !s.busy);
       $("solution").hidden = !open || climbed < 3 || s.busy;
-      $("next").hidden = open || g.over;
       $("skip").hidden = !open;
+      $("next").hidden = open || g.over;
+      $("again").hidden = $("change").hidden = !g.over;
 
       // the end of a round or a climb
       $("summary").hidden = !g.over;
       if (g.over) {
-        const solved = g.results.filter(Boolean).length, got = g.results.reduce((a, b) => a + b, 0);
-        $("sum-stars").textContent = g.mode === "round" ? g.results.map((n) => starText(n)).join(" ") : "🏔️";
-        $("sum-stars").className = g.mode === "round" ? "big groups" : "big";
+        const done = g.results.filter(Boolean).length, got = g.results.reduce((a, b) => a + b, 0);
+        if (g.mode === "round") $("sum-stars").replaceChildren(...g.results.map(starRow));
+        else $("sum-stars").replaceChildren(icon("peak", "peak"));
         $("sum-title").textContent = g.mode === "round" ? t().roundOver : t().climbOver;
-        $("sum-text").textContent = g.mode === "round" ? t().sumRound(got, 3 * g.round_size) : solved ? t().sumClimb(g.top_level) : t().noSummit;
-        const numbers = [[g.points, t().nPoints], [`${solved}/${g.results.length}`, t().nSolved],
-                         g.mode === "climb" ? [solved ? g.top_level : "–", t().nTop] : [g.best_streak, t().nBest]];
-        $("sum-numbers").replaceChildren(...numbers.map(([value, name]) => {
-          const box = el("div"); box.append(el("b", String(value)), el("small", name)); return box;
+        $("sum-text").textContent = g.mode === "round" ? t().sumRound(got, 3 * g.round_size) : done ? t().sumClimb(g.top_level) : t().noSummit;
+        const numbers = [[g.points, t().nPoints, "var(--amber)"], [`${done}/${g.results.length}`, t().nSolved, "var(--green)"],
+                         g.mode === "climb" ? [done ? g.top_level : "–", t().nTop, "var(--blue)"] : [g.best_streak, t().nBest, "var(--blue)"]];
+        $("sum-numbers").replaceChildren(...numbers.map(([value, name, color]) => {
+          const box = el("div"); box.style.setProperty("--c", color); box.append(el("small", name), el("b", String(value))); return box;
         }));
       }
 
@@ -536,10 +591,12 @@
       const prof = s.profile || { topics: {} };
       $("profile-card").hidden = !prof.attempts;
       $("profile").replaceChildren(...Object.entries(prof.topics).map(([topic, c]) => {
-        const row = el("div", null, "topic"), bar = el("div", null, "bar");
+        const row = el("div", null, "topic"), bar = el("div", null, "bar"), n = el("span", null, "n");
         const total = c.alone + c.helped + c.not_yet;
-        for (const k of ["alone", "helped", "not_yet"]) { const part = el("span"); part.style.width = (100 * c[k] / total) + "%"; bar.append(part); }
-        row.append(el("label", t().topics[topic] || topic), bar, el("span", `${c.alone >= 3 ? "🏅 " : ""}${c.alone + c.helped}/${total}`, "count"));
+        for (const k of ["alone", "helped", "not_yet"]) { const piece = el("span"); piece.style.width = (100 * c[k] / total) + "%"; bar.append(piece); }
+        if (c.alone >= 3) n.append(icon("medal"), " ");
+        n.append(`${c.alone + c.helped}/${total}`);
+        row.append(el("label", t().topics[topic] || topic), bar, n);
         return row;
       }));
       $("board-card").hidden = !g.board.length;
@@ -559,7 +616,7 @@
     $("student").onkeydown = (e) => { if (e.key === "Enter") play(); };
     $("again").onclick = () => { level = state.level; mode = state.game.mode; play(); };
     $("resume").onclick = () => { home = false; render(state); };
-    $("change").onclick = $("change2").onclick = () => { home = true; level = state.level; render(state); scrollTo({ top: 0 }); };
+    $("quit").onclick = $("change").onclick = () => { home = true; level = state.level; render(state); scrollTo({ top: 0 }); };
     $("hint").onclick = () => api("hint");
     // two clicks instead of a confirm() dialog: embedded browsers and kiosks often block dialogs
     $("solution").onclick = () => {
@@ -568,7 +625,8 @@
       $("solution").textContent = t().confirm;
       setTimeout(() => { if (armed) { armed = false; $("solution").textContent = t().solution; } }, 5000);
     };
-    $("next").onclick = $("skip").onclick = () => api("next");
+    $("next").onclick = () => api("next").then(() => scrollTo({ top: 0 }));
+    $("skip").onclick = () => api("next");
     $("ui-lang").onchange = (e) => {
       lang = e.target.value;
       keep("lang", lang);
