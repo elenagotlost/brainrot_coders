@@ -21,6 +21,22 @@ same level; not solved, the same topic one level down. The LED matrix shows `L` 
 a cross, a row of dots while the model writes, and one small bar per hint used. The student's history
 (by topic: alone, with help, not yet) stays in `python/students.db` on the board.
 
+**The game.** The same ladder, played three ways, chosen on the start page:
+
+| Game | Rules |
+| --- | --- |
+| Free practice | No end. The level follows the student. |
+| Round of 5 | Five problems, then a summary: up to three stars per problem. |
+| The climb | Three lives. A wrong answer, a skip or asking for the solution costs one. A hint costs none. |
+
+The points reward thinking over guessing (`score()` in `tutor.py`): 100 for a solved problem, minus 15
+per hint and 25 per wrong answer (never below 10), plus 10 per level and up to 50 for problems solved in
+a row. A hint is cheaper than a wrong guess on purpose. A problem that took more than one wrong answer
+breaks the row, so clicking through the options does not pay. Three stars: right at the first try with
+at most the first hint; two: with help; one: after several wrong answers. Points add up to five ranks
+(Joey to Super Kangaroo) and a table of the players on this board. The matrix shows a star for a
+three-star answer. Points and the game played are stored per attempt in `students.db`.
+
 **The matrix page** (`/draw.html`): write text or draw pixels on the 8x13 matrix.
 
 ## Layout
