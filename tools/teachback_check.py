@@ -52,6 +52,28 @@ def main():
     assert conclusion(CANDY, "Tom has 17 and Marc has 9") == (None, None)
     assert read_result(CANDY, "each needs 26 / 2 = 13, he gives 17 - 13")["unfinished"] == "17 - 13"
 
+    # the conversation that went wrong: answers that are numbers of the problem, lowercase letters
+    balls = {"id": "made-up-3", "language": "eng", "label": "C",
+             "text": "In a bag there are 10 red balls, 8 blue balls and 11 black balls. What is the minimum number "
+                     "of balls we need to take out, without looking, to be sure we have taken out a black ball?",
+             "options": {"A": "10", "B": "11", "C": "19", "D": "20", "E": "28"}}
+    assert conclusion(balls, "since there are 11 black balls, if i take 11 balls surely i will take a black ball out") == ("B", "11")
+    assert conclusion(balls, "11") == ("B", "11")
+    assert conclusion(balls, "option b: 11") == ("B", "11")
+    assert conclusion(balls, "the number i get in the end is option b: 11 balls") == ("B", "11")
+    assert conclusion(balls, "b)") == ("B", "11")
+    assert conclusion(balls, "there are 10 red and 8 blue") == (None, None)
+    assert conclusion(PROBLEM, "the answer is a number") == (None, None)
+    assert analyse(balls, ["since there are 11 black balls, if i take 11 balls surely i will take a black ball out"], "")["status"] == "wrong"
+    assert analyse(balls, ["11 is not enough: the first 10 + 8 = 18 could be red and blue, so 18 + 1 = 19"], "")["status"] == "convinced"
+    first = "since there are 11 black balls, if i take 11 balls surely i will take a black ball out"
+    assert analyse(balls, [first, "bro..."], "")["status"] == "wrong"           # nothing new: 11 still stands
+    step = analyse(balls, [first, "the first ones could be red or blue: 10 + 8 = 18 of those"], "")
+    assert (step["status"], step["said"]) == ("step", "18")
+    assert analyse(PROBLEM, ["the answer is 7 because 2 + 5 = 7"], NOTES)["status"] == "off"
+    assert reply_problem("You're right, but what if you only?", balls, first) == "cut off"
+    assert reply_problem("You're right, so what happens next?", balls, first) == "agrees with a wrong answer"
+
     # when Kanga is convinced
     assert status("no idea") == "short"
     assert status("I multiply the bags by the apples in each bag and then I take away the ones she ate") == "method"

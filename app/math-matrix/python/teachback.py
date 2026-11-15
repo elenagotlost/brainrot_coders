@@ -45,6 +45,10 @@ NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 # "the answer is C", "option (B)", "la resposta és D": the letter must be a capital, so "is a number" is not a letter
 LETTER_SAID = re.compile(r"(?i:\b(?:answer|option|choice|resposta|opci[oó]|soluci[oó]|solution|letter|lletra)\b)"
                          r"[^.\n]{0,14}?\(?\b([A-E])\b")
+# "option b", "opció c", "letter d": right after these words a lowercase letter is a letter too
+# ("the answer is a number" is not: "answer" is not in this list)
+OPTION_LETTER = re.compile(r"(?i)\b(?:option|opci[oó]|letter|lletra|choice)\s*\(?([a-e])\b")
+ONLY_LETTER = re.compile(r"(?i)^\s*\(?([a-e])\)?[.!]?\s*$")
 
 
 def _norm(number):
@@ -180,17 +184,21 @@ def read_result(problem, text):
       slip        (calculation, what they wrote) for a calculation that is wrong ("9 + 17", "25"), or None
 
     A number counts as a result when it is named as the answer ("the answer is 7"), when it ends a
-    calculation ("= 13"), or when it stands alone and is neither a number of the problem nor a
-    number inside a calculation ("divide by 3" ends on nothing). The last result in the text wins."""
+    calculation ("= 13"), or when it stands alone and is not a number inside a calculation ("divide
+    by 3" ends on nothing). A number of the problem counts only when it is the only number the
+    message uses. A letter counts when it is named ("option b", "the answer is C", "b)").
+    The last result in the text wins."""
     text = text or ""
     sums = calculations(text)
     slips = [s["slip"] for s in sums if s["slip"]]
     inside = [(s["start"], s["end"]) for s in sums]
     given = number_set(problem.get("text", ""))
     candidates = []  # (position, letter, value, unfinished, how)
-    for m in LETTER_SAID.finditer(text):
-        letter = m.group(1)
-        candidates.append((m.start(1), letter, str((problem.get("options") or {}).get(letter, letter)), None, "named"))
+    named = [(m.start(1), m.group(1)) for m in LETTER_SAID.finditer(text)]
+    named += [(m.start(1), m.group(1).upper()) for m in OPTION_LETTER.finditer(text)]
+    named += [(m.start(1), m.group(1).upper()) for m in ONLY_LETTER.finditer(text)]
+    for at, letter in named:
+        candidates.append((at, letter, str((problem.get("options") or {}).get(letter, letter)), None, "named"))
     for m in ANSWER_IS.finditer(text):
         candidates.append((m.start(1), letter_of(problem, m.group(1)), m.group(1), None, "named"))
     for s in sums:
@@ -201,8 +209,11 @@ def read_result(problem, text):
         else:  # a wrong calculation: what the student wrote is what they believe
             written = s["slip"][1]
             candidates.append((s["end"], letter_of(problem, written), written, None, "sum"))
+    # A number of the problem is data ("Tom has 17 and Marc has 9"), unless it is the only number the
+    # student uses: "11", or "there are 11 black balls, so I take 11" is an answer of 11.
+    loose = {_norm(m.group(0)) for m in NUMBER.finditer(text) if not any(a <= m.start() < b for a, b in inside)}
     for m in NUMBER.finditer(text):
-        if any(a <= m.start() < b for a, b in inside) or _norm(m.group(0)) in given:
+        if any(a <= m.start() < b for a, b in inside) or (_norm(m.group(0)) in given and len(loose) > 1):
             continue
         if OPERAND_BEFORE.search(text[max(0, m.start() - 12):m.start()]) or OPERAND_AFTER.match(text[m.end():]):
             continue
@@ -219,7 +230,8 @@ def read_result(problem, text):
             candidates.append((where, best, str(problem["options"][best]), None, "named"))
     if not candidates:
         return {"slip": slips[-1]} if slips else {}
-    _at, letter, value, unfinished, how = max(candidates, key=lambda c: c[0])
+    named_ones = [c for c in candidates if c[4] == "named"]  # what the student calls the answer wins
+    _at, letter, value, unfinished, how = max(named_ones or candidates, key=lambda c: c[0])
     return {"letter": letter, "value": value, "unfinished": unfinished, "how": how,
             "slip": slips[-1] if slips else None}
 
@@ -259,6 +271,7 @@ def analyse(problem, explanations, notes=""):
       repeat     the latest message is one the student already sent
       slip       a calculation in the latest message is wrong ("expr" and "stated")
       compute    the latest message ends on a calculation it does not work out ("expr")
+      step       it ends on a calculation whose result is no option: a step on the way ("said")
       off        it ends on a value that is none of the options ("said")
       wrong      it ends on a wrong option ("said")
       method     it says what to do, but not what number that gives
@@ -294,16 +307,25 @@ def analyse(problem, explanations, notes=""):
         earlier = read_result(problem, text).get("letter")
         if earlier:
             break
-    letter = found.get("letter")
+    letter, value = found.get("letter"), found.get("value")
+    nothing_new = not letter and not NUMBER.search(latest) and not METHOD_WORDS.search(latest)
     if earlier == label and (not letter or (letter == OFF and found.get("how") != "named")):
         letter = label  # the right answer stands: this message justifies a step ("then both have 13")
-    elif not letter:
-        letter = None   # an earlier wrong answer does not stand: the student may be changing course
+    elif earlier and nothing_new:
+        # "bro...", "I don't know": the last answer still stands, wrong or not
+        for text in reversed(explanations[:-1]):
+            before = read_result(problem, text)
+            if before.get("letter"):
+                letter, value = before["letter"], before["value"]
+                break
+    elif letter == OFF and found.get("how") == "sum":
+        out["status"], out["said"] = "step", value  # "10 + 8 = 18 of those": a step on the way
+        return out
     out["conclusion"] = letter
     if letter == OFF:
-        out["status"], out["said"] = "off", found["value"]
+        out["status"], out["said"] = "off", value
     elif letter and letter != label:
-        out["status"], out["said"] = "wrong", found["value"]
+        out["status"], out["said"] = "wrong", value
     elif not letter:
         if METHOD_WORDS.search(latest) and words(latest) >= 4:
             out["status"] = "method"
@@ -350,12 +372,16 @@ SAY = {
         "slip": ["Wait, is {expr} really {stated}? I get something different. Can you check that one?",
                  "Hold on: {expr} = {stated}? Can you work that out again, slowly?"],
         "compute": ["And how much is {expr}?", "Nice, and what does {expr} give?"],
+        "step": ["Okay, so that gives {said}. And what does that tell you about the question?",
+                 "I see, {said}. How does that help you answer what is asked?"],
         "repeat": ["You said that already, and I'm still lost. Can you explain it another way, with the numbers?",
                    "That's the same as before. Can you show me one step with the actual numbers?"],
         "gap": "How do you get from the numbers in the problem to your result? Can you show me the middle step?",
         "check": "Okay, but why is that true? Can you show me how you checked it?",
         "convinced": "Now I get it, thanks! Go ahead and pick the answer.",
-        "stuck": "I'm still lost. Maybe try a smaller example first?",
+        "stuck": ["I'm still lost. Maybe try a smaller example first?",
+                  "Hmm, I still don't get it. What is the very first thing you would do?",
+                  "Let's start again: what does the question ask for, exactly?"],
         "teacher": "My teacher once told me: \"{text}\" Does that help?",
         "showhow": "If you're stuck, you can press \"Show me how\".",
     },
@@ -375,12 +401,16 @@ SAY = {
         "slip": ["Espera, {expr} fa {stated}? A mi em surt una altra cosa. Ho pots comprovar?",
                  "Un moment: {expr} = {stated}? Ho pots tornar a calcular a poc a poc?"],
         "compute": ["I quant fa {expr}?", "Molt bé, i què dona {expr}?"],
+        "step": ["D'acord, així que surt {said}. I què et diu això sobre la pregunta?",
+                 "Ja ho veig, {said}. Com t'ajuda això a respondre el que es demana?"],
         "repeat": ["Això ja ho has dit, i encara estic perdut. M'ho pots explicar d'una altra manera, amb els nombres?",
                    "És el mateix que abans. M'ensenyes un pas amb els nombres de veritat?"],
         "gap": "Com passes dels nombres del problema al teu resultat? Em pots ensenyar el pas del mig?",
         "check": "D'acord, però per què és així? M'ensenyes com ho has comprovat?",
         "convinced": "Ara ho entenc, gràcies! Ja pots triar la resposta.",
-        "stuck": "Encara estic perdut. Potser prova primer amb un exemple més petit?",
+        "stuck": ["Encara estic perdut. Potser prova primer amb un exemple més petit?",
+                  "Mmm, encara no ho entenc. Què és el primer que faries?",
+                  "Tornem a començar: què demana exactament la pregunta?"],
         "teacher": "La meva mestra un cop em va dir: \"{text}\" T'ajuda?",
         "showhow": "Si t'has encallat, pots prémer \"Ensenya-m'ho\".",
     },
@@ -405,7 +435,8 @@ LANGUAGE = {"cat": " Ask your question in Catalan."}
 FOCUS = {
     "short": "You can't follow yet. Ask where they start.",
     "no_answer": "They have not said what the result is. Ask what comes out at the end.",
-    "wrong": "Their result does not look right to you. Ask about the step that gives their result.",
+    "wrong": "Their result does not look right to you. Ask about a case or a step their reasoning does not "
+             "cover, so they can find the mistake themselves.",
     "gap": "They skip a step. Ask how they get from the numbers of the problem to the result.",
     "check": "Ask them why one of their steps is true.",
 }
@@ -460,7 +491,7 @@ def question_grammar(allowed):
     """One question, at most about 140 characters, whose only numbers are in `allowed`."""
     numbers = sorted({n for n in allowed if n}, key=len, reverse=True)
     piece = r'[^0-9\n?.!<>]' + "".join(f' | "{n}"' for n in numbers)
-    return 'root ::= first piece{8,140} "?"\nfirst ::= [^0-9\\n?.!<> ]\npiece ::= ' + piece.replace("\n", "\\n")
+    return 'root ::= first piece{8,100} "?"\nfirst ::= [^0-9\\n?.!<> ]\npiece ::= ' + piece.replace("\n", "\\n")
 
 
 def clean_reply(text):
@@ -479,6 +510,10 @@ def reply_problem(reply, problem, said, lang="eng"):
         return "cut off"
     if "?" not in reply:
         return "asks nothing"
+    if re.search(r"(\s|\b(?:the|a|an|of|to|if|only|and|or|you|el|la|de|i|que|si))\?$", reply, re.I):
+        return "cut off"  # the grammar's length limit ended it mid-sentence
+    if re.match(r"(?i)\s*(you'?re right|that'?s right|correct|exactly|tens raó|és correcte|exacte)\b", reply):
+        return "agrees with a wrong answer"
     if LETTER_SAID.search(reply):
         return "points at an option"
     if number_set(reply) - number_set(problem.get("text", "")) - number_set(said):
@@ -497,7 +532,7 @@ def reply_problem(reply, problem, said, lang="eng"):
 
 
 # Cases where code knows exactly what to say: the model adds nothing there
-FIXED = ("convinced", "repeat", "slip", "compute", "off", "method")
+FIXED = ("convinced", "repeat", "slip", "compute", "off", "method", "step")
 
 
 def kanga_reply(problem, lang, chat, analysis, llm, timeout=55, help_text=""):
@@ -543,6 +578,6 @@ def _kanga_line(problem, lang, chat, analysis, llm, timeout):
         why = "asked that already"
     if why:
         if any(fixed in line for line in asked):  # never the same line twice: the student needs something new
-            fixed = say(lang, "stuck")
+            fixed = say(lang, "stuck", avoid=asked)
         return fixed, "fixed: " + why
     return reply, "model"
