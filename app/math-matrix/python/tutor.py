@@ -525,7 +525,8 @@ class Tutor:
             chat, notes, lang = [dict(turn) for turn in teach["chat"]], teach["notes"], self.lang
         analysis = teachback.analyse(problem, teach["explanations"], notes)
         try:
-            reply, source = teachback.kanga_reply(problem, lang, chat, analysis, self.llm)
+            reply, source = teachback.kanga_reply(problem, lang, chat, analysis, self.llm,
+                                                  help_text=method(problem.get("topic"), lang)[1])
         except Exception as error:  # Kanga must never break the lesson
             reply, source = teachback.say(lang, "stuck"), f"fixed: {type(error).__name__}"
         with self.lock:

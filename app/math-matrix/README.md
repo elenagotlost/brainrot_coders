@@ -39,7 +39,11 @@ answers it, adds a step or fixes one, until Kanga says "Now I get it". Then they
 | --- | --- | --- |
 | Read the problem while the student thinks, so it is in the prompt cache | the 0.8B, one call of one token | in the background |
 | Is the explanation good enough? It must name one of the options, the right one, be long enough to follow, and on the first try go through the key numbers of the teacher's solution in the bank, when there is one | code, never the model | none |
+| What the student's message ends on. A number counts as their result only when it is named as the answer, ends a calculation ("= 13"), or stands alone; "divide by 3" ends on nothing | code | none |
+| The student's arithmetic: every written calculation is worked out exactly. A wrong one ("9 + 17 = 25") gets "Wait, is 9 + 17 really 25?", and an unfinished one ("he gives 17 - 13") gets "And how much is 17 - 13?" | code | none |
+| A message sent twice, a method with no number, an answer that is no option: a precise line for each | code | none |
 | Kanga's first sentence ("You get 8, but something doesn't add up for me.") | code | none |
+| More help when the student is stuck: at the third explanation the method for this topic ("My teacher once told me: ..."), from the fourth on a pointer to "Show me how" | code | none |
 | Kanga's question | the 0.8B, about 20 tokens, under a grammar: one question, no numbers but those of the problem or the student | a few seconds |
 | Check the question: no answer, in figures or in words, and no letter | code; if it fails, a fixed question for that case | none |
 
