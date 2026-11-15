@@ -21,13 +21,33 @@ same level; not solved, the same topic one level down. The LED matrix shows `L` 
 a cross, a row of dots while the model writes, and one small bar per hint used. The student's history
 (by topic: alone, with help, not yet) stays in `python/students.db` on the board.
 
-**The game.** The same ladder, played three ways, chosen on the start page:
+**The game.** Four games, chosen on the start page. The first three play the same ladder:
 
 | Game | Rules |
 | --- | --- |
 | Free practice | No end. The level follows the student. |
 | Round of 5 | Five problems, then a summary: up to three stars per problem. |
 | The climb | Three lives. A wrong answer, a skip or asking for the solution costs one. A hint costs none. |
+| Teach Kanga | Learning by teaching. The student explains the problem to Kanga, a classmate who can't solve it, and the answer buttons open only when Kanga understands. No hint ladder. |
+
+**Teach Kanga** (`python/teachback.py`). Explaining a solution to someone else is one of the best ways
+to learn it. The student writes how they would solve the problem. Kanga answers with a sentence about
+what it noticed and one question about the step that is missing, unclear or wrong, and the student
+answers it, adds a step or fixes one, until Kanga says "Now I get it". Then they pick the answer.
+
+| Part | Who does it | Cost on the board |
+| --- | --- | --- |
+| Read the problem while the student thinks, so it is in the prompt cache | the 0.8B, one call of one token | in the background |
+| Is the explanation good enough? It must name one of the options, the right one, be long enough to follow, and on the first try go through the key numbers of the teacher's solution in the bank, when there is one | code, never the model | none |
+| Kanga's first sentence ("You get 8, but something doesn't add up for me.") | code | none |
+| Kanga's question | the 0.8B, about 20 tokens, under a grammar: one question, no numbers but those of the problem or the student | a few seconds |
+| Check the question: no answer, in figures or in words, and no letter | code; if it fails, a fixed question for that case | none |
+
+The model is never told the answer: told it, the 0.8B wrote it into its reply at once. It can't judge an
+explanation either, so code does. With no model at all the mode still works, with fixed questions. After
+two explanations the student can ask "Show me how", which reveals the solution and counts as not solved.
+Each explanation after the first counts like a hint for the points, so explaining it well the first time
+earns three stars. `python3 tools/teachback_check.py` checks the code side without a model.
 
 The points reward thinking over guessing (`score()` in `tutor.py`): 100 for a solved problem, minus 15
 per hint and 25 per wrong answer (never below 10), plus 10 per level and up to 50 for problems solved in
@@ -45,6 +65,7 @@ three-star answer. Points and the game played are stored per attempt in `student
 app.yaml                 name and bricks (arduino:web_ui)
 python/main.py           runs on Linux in App Lab's container: web API, matrix frames
 python/tutor.py          the hint ladder, the leak check and the adaptive trainer (standard library only)
+python/teachback.py      Teach Kanga: when the explanation is good enough, and what Kanga asks
 python/dev_server.py     the same page and API on a laptop, without App Lab
 python/teach.db          the bank, built by laptop/build_teach_bank.py (M3Kang text: not in Git)
 python/setup_bridge.sh   one-time board setup so the app can reach the model (see below)

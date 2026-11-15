@@ -197,6 +197,11 @@ def api_answer(letter: str):
     return api("answer", letter)
 
 
+def api_explain(text: str):
+    """The teach mode: the student's explanation, as base64url (see tutor.Tutor.handle)."""
+    return api("explain", text)
+
+
 def api_hint():
     return api("hint")
 
@@ -217,6 +222,7 @@ ui = WebUI()
 ui.expose_api("GET", "/api/start/{student}/{lang}/{level}", api_start)
 ui.expose_api("GET", "/api/start/{student}/{lang}/{level}/{mode}", api_play)
 ui.expose_api("GET", "/api/answer/{letter}", api_answer)
+ui.expose_api("GET", "/api/explain/{text}", api_explain)
 ui.expose_api("GET", "/api/hint", api_hint)
 ui.expose_api("GET", "/api/solution", api_solution)
 ui.expose_api("GET", "/api/next", api_next)

@@ -63,7 +63,7 @@
     #levels { display: flex; gap: 8px; flex-wrap: wrap; }
     #levels .btn { width: 48px; height: 46px; padding: 0; font-size: 17px; --text: var(--ink); }
     #levels .btn.on { --face: var(--blue); --edge: var(--blue-d); --text: #fff; }
-    #modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    #modes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
     .mode { border: 0; border-radius: 18px; padding: 16px; text-align: left; cursor: pointer; color: #fff; background: var(--c);
             box-shadow: 0 5px 0 var(--d); position: relative; transition: transform .05s, box-shadow .05s, filter .1s; }
     .mode.on { outline: 4px solid var(--ink); outline-offset: 3px; } .mode:hover { filter: brightness(1.06); }
@@ -75,6 +75,7 @@
                   display: none; place-items: center; font-size: 15px; }
     .mode.on .tick { display: grid; }
     .mode.train { --c: var(--blue); --d: var(--blue-d); } .mode.round { --c: var(--amber); --d: var(--amber-d); } .mode.climb { --c: var(--red); --d: var(--red-d); }
+    .mode.teach { --c: var(--violet); --d: var(--violet-d); }
     #start { width: 100%; }
     .rules { margin-top: 16px; font-size: 14.5px; color: var(--soft); }
     .rules summary { cursor: pointer; font-weight: 800; color: var(--blue); }
@@ -114,6 +115,7 @@
     #options .c { --c: var(--amber); --d: var(--amber-d); } #options .d { --c: var(--green); --d: var(--green-d); }
     #options .e { --c: var(--violet); --d: var(--violet-d); }
     #options .out { opacity: .3; }
+    #options.locked button { opacity: .4; }
     #options .wrong { --c: #4a7578; --d: #3c6164; color: #b5d5d6; animation: shake .35s; } #options .wrong span { text-decoration: line-through; }
     #options .right { outline: 4px solid #fff; outline-offset: -4px; }
     #options .right b, #options .wrong b { background: #fff; color: var(--d); font-size: 22px; }
@@ -133,6 +135,21 @@
     .rung h3 { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: var(--soft); margin: 6px 0 4px; }
     .rung p { margin: 4px 0; }
     .rung .example { background: var(--field); border-radius: 12px; padding: 12px 14px; margin: 6px 0; }
+
+    /* ---- the teach mode: a conversation with Kanga */
+    #chat { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+    .msg { max-width: 82%; padding: 11px 15px; border-radius: 18px; font-size: 16.5px; line-height: 1.45; white-space: pre-wrap; }
+    .msg.tutor { align-self: flex-start; background: #efeafd; color: #3d2a86; border-bottom-left-radius: 6px; }
+    .msg.student { align-self: flex-end; background: var(--blue); color: #fff; border-bottom-right-radius: 6px; }
+    .msg.tutor.got { background: var(--green-bg); color: var(--green-ink); }
+    .msg.wait { opacity: .7; font-style: italic; }
+    .msg small { display: block; font-size: 12px; font-weight: 700; opacity: .7; margin-top: 3px; }
+    .who { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; opacity: .7; display: block; }
+    #say-row { display: flex; gap: 10px; align-items: flex-end; }
+    #say { flex: 1; min-height: 76px; resize: vertical; padding: 12px 14px; border: 2px solid var(--line); border-radius: 14px; background: var(--field);
+           font-weight: 600; font-size: 16.5px; line-height: 1.4; }
+    #say:focus { outline: none; border-color: var(--violet); background: #fff; }
+    #teach-note { margin-top: 8px; }
 
     /* ---- the sheet at the bottom: feedback and the next step */
     #sheet { position: fixed; left: 0; right: 0; bottom: 0; background: #fff; color: var(--ink); border-top: 2px solid var(--line); z-index: 4; }
@@ -257,6 +274,16 @@
     </div>
 
     <div class="panel" id="question"><p id="text"></p></div>
+    <div class="panel" id="teach" hidden>
+      <h2 data-t="teachTitle">Explain it to Kanga</h2>
+      <div id="chat" aria-live="polite"></div>
+      <div id="say-row">
+        <textarea id="say" maxlength="1200" aria-label="Your explanation"></textarea>
+        <button class="btn go" id="send" data-t="send">Send</button>
+      </div>
+      <p class="small" id="teach-note"></p>
+    </div>
+
     <div id="options"></div>
 
     <div class="panel" id="hints" hidden>
@@ -303,12 +330,20 @@
         boardTitle: "Top players on this board", streak: "In a row", pts: "points", session: "This game",
         modes: { train: ["target", "Free practice", "No end and no pressure. The level follows you."],
                  round: ["star", "Round of 5", "Five problems. How many stars can you collect?"],
-                 climb: ["peak", "The climb", "Three lives. Each wrong answer costs one. How high can you get?"] },
+                 climb: ["peak", "The climb", "Three lives. Each wrong answer costs one. How high can you get?"],
+                 teach: ["chat", "Teach Kanga", "Kanga can't solve it. Explain it until Kanga understands, then answer."] },
         ranks: ["Joey", "Hopper", "Jumper", "Kangaroo", "Super Kangaroo"],
         rulesTitle: "How do points work?",
         rules: ["Solving a problem: 100 points.", "Each hint: 15 points less. Each wrong answer: 25 less. So asking beats guessing!",
                 "Harder problems: 10 extra points per level.", "Solving several in a row (at most one wrong answer each): up to 50 extra points.",
-                "Three stars: right at the first try, with at most the first hint."],
+                "Three stars: right at the first try, with at most the first hint.",
+                "Teach Kanga: each extra explanation Kanga needs counts like a hint. Explain it well the first time for three stars."],
+        teachTitle: "Explain it to Kanga", send: "Send", kanga: "Kanga", you: "You", showHow: "Show me how",
+        teachSay: "Explain how you would solve it, step by step, and say what answer you get.",
+        teachMore: "Answer Kanga's question. You can add a step or fix one.",
+        teachLocked: "The answer buttons open when Kanga understands your explanation.",
+        teachOpen: "Kanga understands. Now pick the answer!", teachTitleOpen: "Teach Kanga", teachGot: "Kanga gets it!",
+        kangaThinking: "Kanga is thinking…", preparing: "Kanga is reading the problem…",
         hint: (n, cost) => `Hint ${n}/3 · −${cost}`, noHints: "No more hints", thinking: "The board is thinking of a hint…",
         right: "Correct!", rightHelp: "Correct, with some help!", wrong: "Think again, or ask for a hint: a hint costs less than a guess.",
         wrongLife: (n) => `${n} ${n === 1 ? "life" : "lives"} left. A hint is safer than a guess.`,
@@ -335,12 +370,20 @@
         boardTitle: "Millors jugadors d'aquesta placa", streak: "Seguits", pts: "punts", session: "Aquest joc",
         modes: { train: ["target", "Pràctica lliure", "Sense final ni pressa. El nivell et segueix."],
                  round: ["star", "Ronda de 5", "Cinc problemes. Quantes estrelles pots aconseguir?"],
-                 climb: ["peak", "L'escalada", "Tres vides. Cada resposta errònia en costa una. Fins on arribes?"] },
+                 climb: ["peak", "L'escalada", "Tres vides. Cada resposta errònia en costa una. Fins on arribes?"],
+                 teach: ["chat", "Ensenya en Kanga", "En Kanga no el sap resoldre. Explica-li fins que ho entengui, i després respon."] },
         ranks: ["Cangur petit", "Saltador", "Gran saltador", "Cangur", "Supercangur"],
         rulesTitle: "Com funcionen els punts?",
         rules: ["Resoldre un problema: 100 punts.", "Cada pista: 15 punts menys. Cada resposta errònia: 25 menys. Val més preguntar que endevinar!",
                 "Problemes més difícils: 10 punts extra per nivell.", "Resoldre'n uns quants seguits (amb un error com a màxim a cada un): fins a 50 punts extra.",
-                "Tres estrelles: encertar a la primera, amb la primera pista com a màxim."],
+                "Tres estrelles: encertar a la primera, amb la primera pista com a màxim.",
+                "Ensenya en Kanga: cada explicació de més que necessita compta com una pista. Explica-ho bé a la primera per a tres estrelles."],
+        teachTitle: "Explica-ho a en Kanga", send: "Envia", kanga: "Kanga", you: "Tu", showHow: "Ensenya-m'ho",
+        teachSay: "Explica com el resoldries, pas a pas, i digues quina resposta et surt.",
+        teachMore: "Respon la pregunta d'en Kanga. Pots afegir un pas o corregir-ne un.",
+        teachLocked: "Els botons de resposta s'obren quan en Kanga entén la teva explicació.",
+        teachOpen: "En Kanga ho entén. Ara tria la resposta!", teachTitleOpen: "Ensenya en Kanga", teachGot: "En Kanga ho ha entès!",
+        kangaThinking: "En Kanga està pensant…", preparing: "En Kanga està llegint el problema…",
         hint: (n, cost) => `Pista ${n}/3 · −${cost}`, noHints: "No hi ha més pistes", thinking: "La placa està pensant una pista…",
         right: "Correcte!", rightHelp: "Correcte, amb una mica d'ajuda!", wrong: "Torna-hi a pensar, o demana una pista: una pista costa menys que provar sort.",
         wrongLife: (n) => `Et ${n === 1 ? "queda 1 vida" : "queden " + n + " vides"}. Una pista és més segura que provar sort.`,
@@ -369,6 +412,7 @@
       peak: '<path d="M1.500 20.500L9 7l3.600 5.400L15 9l7.500 11.500z"/>',
       target: '<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 4a6 6 0 1 1 0 12 6 6 0 0 1 0-12zm0 3.500a2.500 2.500 0 1 0 0 5 2.500 2.500 0 0 0 0-5z" fill-rule="evenodd"/>',
       bulb: '<path d="M12 2.500a6.500 6.500 0 0 0-3.800 11.800V16h7.600v-1.700A6.500 6.500 0 0 0 12 2.500zM8.800 17.800h6.400v1.400a2 2 0 0 1-2 2h-2.400a2 2 0 0 1-2-2z"/>',
+      chat: '<path d="M4 3.500h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10l-5 4v-4H4a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2zm3.500 6.200a1.400 1.400 0 1 0 0 2.800 1.400 1.400 0 0 0 0-2.800zm4.500 0a1.400 1.400 0 1 0 0 2.800 1.400 1.400 0 0 0 0-2.800zm4.500 0a1.400 1.400 0 1 0 0 2.800 1.400 1.400 0 0 0 0-2.800z" fill-rule="evenodd"/>',
       medal: '<path d="M7 2h10l-3 7.200a6.500 6.500 0 1 1-4 0zm5 9.500a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" fill-rule="evenodd"/>',
     };
     const LINES = { check: '<path d="M5 12.800l4.500 4.500L19 7.500"/>', cross: '<path d="M6 6l12 12M18 6L6 18"/>' };
@@ -479,6 +523,7 @@
       renderHome();
       if (home) return;
       const open = s.status === "open", solved = s.status === "solved";
+      const teaching = g.mode === "teach" && s.teach, locked = teaching && open && !s.teach.convinced;
 
       // the top bar
       const rankPart = g.rank_next == null ? 1 : (g.total - g.rank_from) / (g.rank_next - g.rank_from);
@@ -506,15 +551,33 @@
         if (right) mark.append(icon("check")); else if (tried) mark.append(icon("cross"));
         b.append(mark, el("span", value));
         if (right) b.classList.add("right"); else if (tried) b.classList.add("wrong"); else if (s.label) b.classList.add("out");
-        b.disabled = !open || tried || s.busy;
+        b.disabled = !open || tried || s.busy || locked;
         b.onclick = () => api("answer/" + letter);
         return b;
       }));
+      $("options").classList.toggle("locked", !!locked);
+
+      // the teach mode: the conversation with Kanga
+      $("teach").hidden = !teaching;
+      if (teaching) {
+        const k = s.teach, wait = open && s.busy;
+        $("chat").replaceChildren(...k.chat.map((m) => {
+          const box = el("div", null, "msg " + m.who + (m.status === "convinced" ? " got" : ""));
+          box.append(el("span", m.who === "tutor" ? t().kanga : t().you, "who"), m.text);
+          return box;
+        }), ...(wait ? [el("div", t().kangaThinking, "msg tutor wait")] : []));
+        const canSay = open && !s.busy && !k.convinced;
+        $("say").disabled = $("send").disabled = !canSay;
+        $("say-row").hidden = !open || k.convinced;
+        $("say").placeholder = k.explained ? t().teachMore : t().teachSay;
+        $("teach-note").textContent = !open ? "" : k.convinced ? t().teachOpen : !k.prepared ? t().preparing : t().teachLocked;
+      }
 
       // the ladder
       const climbed = s.hints.filter((h) => h.rung <= 3).length;
       const shown = s.hints.some((h) => h.kind === "solution");
       $("hints").hidden = !s.hints.length;
+      $("steps").hidden = !!teaching;
       $("steps").replaceChildren(...t().steps.map((name, i) =>
         el("div", name, (i < 3 ? (i < climbed ? "done" : "") : "last" + (shown ? " done" : "")))));
       const rungs = p.id + "/" + s.hints.length, fresh = rungs !== lastRungs;   // only a new rung slides in
@@ -548,6 +611,10 @@
         : s.busy ? t().thinking : missed ? t().wrongTitle : "";
       $("sheet-text").textContent = s.status === "revealed" && !g.over ? t().revealed
         : missed ? (g.mode === "climb" ? t().wrongLife(g.lives) : t().wrong) : "";
+      if (teaching && open && !missed) {
+        $("sheet-title").textContent = s.busy ? t().kangaThinking : s.teach.convinced ? t().teachGot : t().teachTitleOpen;
+        $("sheet-text").textContent = s.teach.convinced ? t().teachOpen : s.teach.explained ? t().teachMore : t().teachSay;
+      }
       const gained = $("gained");
       gained.replaceChildren();
       if (solved && g.gained) {
@@ -566,8 +633,9 @@
       }
       $("hint").replaceChildren(icon("bulb"), climbed < 3 ? t().hint(climbed + 1, HINT_COST) : t().noHints);
       $("hint").disabled = s.busy || climbed >= 3;
-      $("hint").hidden = !open || (climbed >= 3 && !s.busy);
-      $("solution").hidden = !open || climbed < 3 || s.busy;
+      $("hint").hidden = !open || (climbed >= 3 && !s.busy) || !!teaching;
+      $("solution").hidden = !open || s.busy || (teaching ? s.teach.explained < 2 || s.teach.convinced : climbed < 3);
+      if (!armed) $("solution").textContent = teaching ? t().showHow : t().solution;
       $("skip").hidden = !open;
       $("next").hidden = open || g.over;
       $("again").hidden = $("change").hidden = !g.over;
@@ -603,7 +671,7 @@
       table($("board"), g.board);
 
       clearTimeout(timer);
-      if (s.busy) timer = setTimeout(() => api("state"), 1000);
+      if (s.busy || (s.teach && !s.teach.prepared && s.status === "open")) timer = setTimeout(() => api("state"), 1000);
     }
 
     function play() {
@@ -618,12 +686,24 @@
     $("resume").onclick = () => { home = false; render(state); };
     $("quit").onclick = $("change").onclick = () => { home = true; level = state.level; render(state); scrollTo({ top: 0 }); };
     $("hint").onclick = () => api("hint");
+    // the explanation travels in the URL as base64url: no "/" in it, whatever the student writes
+    function sendExplanation() {
+      const text = $("say").value.trim();
+      if (!text || $("send").disabled) return;
+      const bytes = new TextEncoder().encode(text.slice(0, 1200));
+      let bin = ""; bytes.forEach((b) => { bin += String.fromCharCode(b); });
+      const b64 = btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      $("say").value = "";
+      api("explain/" + b64);
+    }
+    $("send").onclick = sendExplanation;
+    $("say").onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendExplanation(); } };
     // two clicks instead of a confirm() dialog: embedded browsers and kiosks often block dialogs
     $("solution").onclick = () => {
       if (armed) { armed = false; api("solution"); return; }
       armed = true;
       $("solution").textContent = t().confirm;
-      setTimeout(() => { if (armed) { armed = false; $("solution").textContent = t().solution; } }, 5000);
+      setTimeout(() => { if (armed) { armed = false; $("solution").textContent = state && state.teach ? t().showHow : t().solution; } }, 5000);
     };
     $("next").onclick = () => api("next").then(() => scrollTo({ top: 0 }));
     $("skip").onclick = () => api("next");
