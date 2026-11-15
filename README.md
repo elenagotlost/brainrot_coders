@@ -1234,6 +1234,10 @@ The [`publish-project`](.skills/publish-project/SKILL.md) skill can check your R
 | `SEED` | 42 | Random seed |
 | `FALLBACK_ANSWER` | D | Answer when the model is too slow or fails |
 | `VISION_PORT` | 8083 | Optional server that can see images, for the explorer |
+| `CODE_REPO`, `CODE_REVISION`, `CODE_FILE`, `CODE_SHA256` | Qwen2.5-Math-1.5B-Instruct Q4_K_M | The code model (`copilot/tir.py`), downloaded by `board/03`, run by `board/systemd/math-code.service` |
+| `CODE_PORT` | 8091 | Its server. `predict.py --code auto` (the default) uses it when it answers |
+| `CODE_READ_TPS`, `CODE_WRITE_TPS` | 6.0, 3.5 | Starting guesses for its board speed; the stage measures them on every call |
+| `CODE_MAX_TOKENS` | 200 | Most tokens it may write per problem; the time guard can stop it earlier |
 
 `config.env` is read by the Python code and by the scripts in `board/`. If you change the model or a server option, also change the service files from step 7, then run `sudo systemctl daemon-reload` and `sudo systemctl restart math-llm math-embed`.
 

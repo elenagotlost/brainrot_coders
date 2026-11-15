@@ -10,9 +10,11 @@ answers or passes the problem on:
      a model call                                           route = empty
   3. prior over the five options (median value or medoid string); with
      --no-llm it answers                    route = prior-numeric / prior-text
-  3b. code stage (when a code model is serving, see copilot/coder.py): the
-     model writes a short Python program, the board runs it, and the output
-     must equal exactly one option            route = code, else code-prior
+  3b. code stage (when the code model is serving, see copilot/tir.py), for
+     text-only problems with five numeric options: the math model reasons in
+     a line or two, writes a short program, the board runs it, the model reads
+     the output and answers                   route = code
+     on an error the prior answers           route = code-prior
   4. time guard: if reading the prompt would pass the time limit, the prior
      answers                                                route = prior-time
   5. the model gives P(A..E); its letter bias is divided out and the result
@@ -33,7 +35,7 @@ import socket
 import time
 import urllib.error
 
-from . import coder, priors, twins
+from . import priors, tir, twins
 from .config import CONFIG
 from .llm import URL, answer_letter, answer_probs, probs_messages
 
@@ -163,17 +165,17 @@ def solve(problem, index=None, k=0, exclude_id=None, image_b64=None, llm_url=URL
     if ctx.get("no_llm"):
         return done(prior_letter, f"prior-{kind}")
 
-    # 3b. the code stage: the model writes a short program, the board runs it, and the
-    # answer counts only if the output equals exactly one option. When it has no answer
-    # the prior answers: the time is spent, and the letter-picking model adds nothing.
-    if ctx.get("code"):
+    # 3b. the code stage: reason, write a short program, read its output, answer. It always
+    # ends with a letter (its own, the program's, or a forced one), within the time left.
+    if ctx.get("code") and tir.applies(problem):
         try:
             left = time_limit - MARGIN - (time.perf_counter() - start)
-            letter, info = coder.solve(problem, left, url=ctx.get("code_url") or coder.URL)
-            result["prompt_tokens"] = info.get("prompt_tokens", 0)
-            result["code_why"], result["code_tokens"] = info["why"], info.get("tokens", 0)
-            if is_letter(letter):
-                return done(letter, "code")
+            r = tir.solve(ctx.get("code_url") or tir.URL, problem, budget=tir.MAX_TOKENS,
+                          deadline=time.time() + left, speeds=ctx.get("code_speeds"))
+            result["prompt_tokens"] = r.get("prompt_tokens", 0)
+            result["code_why"], result["code_tokens"] = r["source"], r.get("gen_tokens", 0)
+            if is_letter(r["letter"]):
+                return done(r["letter"], "code")
             return done(prior_letter, "code-prior")
         except Exception as error:
             result["code_why"] = failure(error)

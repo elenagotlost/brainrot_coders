@@ -65,13 +65,14 @@ def build_ctx(args, default_bank):
         ctx["probs"] = load_probs(args.probs)
     ctx["code"] = False
     if args.code != "off" and not args.no_llm and not args.probs:
-        from . import coder
-        seconds = coder.warm_up()
+        from . import tir
+        seconds = tir.warm_up()
         if seconds is None and args.code == "on":
-            sys.exit(f"--code on, but no code model answers at {coder.URL}")
+            sys.exit(f"--code on, but no code model answers at {tir.URL}")
         ctx["code"] = seconds is not None
+        ctx["code_speeds"] = tir.Speeds()
         print(f"code stage: {'on, warm-up ' + format(seconds, '.1f') + ' s' if ctx['code'] else 'off (no server)'}"
-              f" ({coder.URL})", file=sys.stderr)
+              f" ({tir.URL})", file=sys.stderr)
     if args.priors:
         from . import priors
         if not priors.load_tables(args.priors):
