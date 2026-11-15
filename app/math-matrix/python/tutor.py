@@ -17,6 +17,11 @@ The next problem is chosen from the M3Kang map (similarity, topic, level):
 right answer -> a neighbour one level up; needed help -> same level;
 gave up -> same topic, one level down.
 
+It is also a game, with rules that reward thinking over guessing (see score()):
+a hint costs fewer points than a wrong guess. Three modes: "train" (endless
+practice), "round" (five problems, then stars) and "climb" (three lives: how
+high can you get?).
+
 The bank (teach.db) is built by laptop/build_teach_bank.py. The student's
 history stays in a second SQLite file on the board: nothing leaves the device.
 """
@@ -37,6 +42,42 @@ TWIN_CAP = 0.9      # above this similarity two problems are the same problem: s
 MIN_SIM = 0.12      # below this a "similar" problem is not similar
 MAX_HINT_WORDS = 40
 ROWS, COLS = 8, 13
+MODES = ("train", "round", "climb")
+ROUND_SIZE = 5      # problems in one round
+LIVES = 3           # wrong answers allowed in a climb
+RANKS = (0, 300, 800, 1500, 3000)   # total points for each rank; the page has the names
+
+
+# ---------------------------------------------------------------- the game: points and stars
+
+def score(hints, wrong, level, streak):
+    """Points for a solved problem, as parts that add up to "total".
+
+    100 for solving it, minus 15 per hint and 25 per wrong answer (never below 10),
+    plus 10 per level and 10 per problem already solved in a row (at most 50).
+    A hint is cheaper than a wrong guess on purpose: asking beats guessing.
+    A problem only counts for the row when it took at most one wrong answer,
+    so clicking through the options breaks the row (see Tutor._finish).
+    """
+    hint_cost = 15 * min(hints, 3)
+    wrong_cost = min(25 * wrong, 90 - hint_cost)
+    parts = {"solved": 100, "hints": -hint_cost, "wrong": -wrong_cost,
+             "level": 10 * level, "streak": 10 * min(max(streak, 0), 5)}
+    parts["total"] = sum(parts.values())
+    return parts
+
+
+def stars(outcome, wrong):
+    """3: first try, at most the first hint. 2: with help. 1: after several wrong answers. 0: not yet."""
+    if outcome == "not_yet":
+        return 0
+    return 3 if outcome == "alone" else 2 if wrong <= 1 else 1
+
+
+def rank(total):
+    """(the rank, 0 to 4; the points where the next rank starts, or None at the top)."""
+    index = max(i for i, need in enumerate(RANKS) if total >= need)
+    return index, RANKS[index + 1] if index + 1 < len(RANKS) else None
 
 # ---------------------------------------------------------------- rung 2: methods
 
@@ -286,14 +327,39 @@ class History:
     def _create(self):
         self.db.execute("CREATE TABLE IF NOT EXISTS attempts (student TEXT, id TEXT, lang TEXT, level INTEGER, "
                         "topic TEXT, outcome TEXT, tries INTEGER, rungs INTEGER, seconds REAL, ts REAL)")
+        for column in ("points INTEGER DEFAULT 0", "mode TEXT DEFAULT 'train'"):
+            try:  # a history file from before the game has no such columns
+                self.db.execute("ALTER TABLE attempts ADD COLUMN " + column)
+            except sqlite3.OperationalError:
+                pass
         self.db.commit()
 
-    def add(self, student, problem, outcome, tries, rungs, seconds):
+    def add(self, student, problem, outcome, tries, rungs, seconds, points=0, mode="train"):
         with self.lock:
-            self.db.execute("INSERT INTO attempts VALUES (?,?,?,?,?,?,?,?,?,?)",
+            self.db.execute("INSERT INTO attempts (student, id, lang, level, topic, outcome, tries, rungs, seconds, "
+                            "ts, points, mode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                             (student, problem["id"], problem["language"], problem["level"], problem["topic"],
-                             outcome, tries, rungs, round(seconds, 1), time.time()))
+                             outcome, tries, rungs, round(seconds, 1), time.time(), points, mode))
             self.db.commit()
+
+    def total(self, student):
+        with self.lock:
+            return self.db.execute("SELECT COALESCE(SUM(points), 0) FROM attempts WHERE student = ?",
+                                   (student,)).fetchone()[0]
+
+    def streaks(self, student):
+        """(problems solved in a row right now, the longest such run ever). At most one wrong answer each."""
+        now = best = 0
+        for row in self.rows(student):
+            now = now + 1 if row[3] != "not_yet" and row[4] <= 2 else 0
+            best = max(best, now)
+        return now, best
+
+    def board(self, limit=5):
+        """The students on this board with the most points: [(name, points, problems solved)]."""
+        with self.lock:
+            return self.db.execute("SELECT student, SUM(points), SUM(outcome != 'not_yet') FROM attempts "
+                                   "GROUP BY student ORDER BY 2 DESC, 3 DESC LIMIT ?", (limit,)).fetchall()
 
     def rows(self, student):
         with self.lock:
@@ -318,6 +384,7 @@ GLYPHS = {
     "6": "..##. .#... #.... ####. #...# #...# .###.", "7": "##### ....# ...#. ..#.. .#... .#... .#...",
     "?": ".###. #...# ....# ...#. ..#.. ..... ..#..", "L": "#.... #.... #.... #.... #.... #.... #####",
     "tick": "..... ....# ...#. ...#. #.#.. .#... .....", "cross": "..... #...# .#.#. ..#.. .#.#. #...# .....",
+    "star": "..#.. ..#.. ##### .###. .###. #...# .....",
     "dots": "..... ..... ..... #.#.# ..... ..... .....",
 }
 
@@ -356,6 +423,9 @@ class Tutor:
         self.problem, self.hints, self.tries = None, [], []
         self.status, self.busy, self.seen, self.started = "idle", False, [], 0.0
         self.picked_by, self.last, self.grid = "", "", matrix("?", 0)
+        # the game
+        self.mode, self.points, self.streak, self.best_streak = "train", 0, 0, 0
+        self.lives, self.results, self.over, self.gained, self.top_level = LIVES, [], False, None, 0
 
     # -- helpers
     def _draw(self, left):
@@ -380,23 +450,34 @@ class Tutor:
                 out["label"] = self.problem["label"]
             if self.student:
                 out["profile"] = self.history.profile(self.student)
+                total = self.history.total(self.student)
+                index, need = rank(total)
+                out["game"] = {"mode": self.mode, "points": self.points, "total": total, "rank": index,
+                               "rank_from": RANKS[index], "rank_next": need, "streak": self.streak,
+                               "best_streak": self.best_streak, "lives": self.lives, "max_lives": LIVES,
+                               "results": list(self.results), "round_size": ROUND_SIZE, "over": self.over,
+                               "gained": self.gained, "top_level": self.top_level,
+                               "board": [list(row) for row in self.history.board()]}
             return out
 
     def _set_problem(self, problem, picked_by):
         self.problem, self.picked_by = problem, picked_by
-        self.hints, self.tries, self.status, self.busy = [], [], "open", False
+        self.hints, self.tries, self.status, self.busy, self.gained = [], [], "open", False, None
         self.seen.append(problem["id"])
         self.started = time.perf_counter()
         self._draw("L")
 
     # -- actions
-    def start(self, student, lang, level):
+    def start(self, student, lang, level, mode="train"):
         with self.lock:
             self.student = re.sub(r"[^\w-]", "", student)[:24] or "student"
             self.lang = lang if lang in self.bank.languages else self.bank.languages[0]
             self.level = max(0, min(7, int(level)))
             self.seen = [row[0] for row in self.history.rows(self.student)]
             self.last = ""
+            self.mode = mode if mode in MODES else "train"
+            self.points, self.lives, self.results, self.over, self.top_level = 0, LIVES, [], False, self.level
+            self.streak, self.best_streak = self.history.streaks(self.student)
             problem, how = self.bank.pick(self.lang, self.level, seen=self.seen, rng=self.rng)
             self._set_problem(problem, how)
             return self.state()
@@ -411,15 +492,34 @@ class Tutor:
                 self.status = "solved"
                 alone = len(self.tries) == 1 and len(self.hints) <= 1
                 self._finish("alone" if alone else "helped")
-                self._draw("tick")
+                self._draw("star" if alone else "tick")
             else:
+                if self.mode == "climb":
+                    self.lives -= 1
+                    if self.lives <= 0:     # out of lives: the climb ends here, with the answer shown
+                        self.status = "revealed"
+                        self._finish("not_yet")
                 self._draw("cross")
             return self.state()
 
     def _finish(self, outcome):
+        """Close the problem: points, streak, stars, the history, and whether the game is over."""
         self.last = outcome
+        solved = outcome != "not_yet"
+        wrong = len(self.tries) - solved
+        rungs = len([h for h in self.hints if h["rung"] <= 3])
+        self.gained = score(rungs, wrong, self.problem["level"], self.streak) if solved else None
+        points = self.gained["total"] if solved else 0
+        self.points += points
+        self.streak = self.streak + 1 if solved and wrong <= 1 else 0   # guessed through: the row breaks
+        self.best_streak = max(self.best_streak, self.streak)
+        if solved:
+            self.top_level = max(self.top_level, self.problem["level"])
+        self.results.append(stars(outcome, wrong))
+        self.over = (self.mode == "round" and len(self.results) >= ROUND_SIZE) or \
+                    (self.mode == "climb" and self.lives <= 0)
         self.history.add(self.student, self.problem, outcome, len(self.tries), len(self.hints),
-                         time.perf_counter() - self.started)
+                         time.perf_counter() - self.started, points, self.mode)
 
     def hint(self):
         """Climb one rung. Rung 4, the solution, has its own action: solution()."""
@@ -482,16 +582,24 @@ class Tutor:
                                "answer": problem["options"][problem["label"]],
                                "explanation": self.bank.explanations.get((problem["id"], self.lang), "")})
             self.status = "revealed"
+            if self.mode == "climb":
+                self.lives -= 1
             self._finish("not_yet")
             self._draw("cross")
             return self.state()
 
     def next(self):
         with self.lock:
-            if self.problem is None:
-                return self.state()
+            if self.problem is None or self.over:
+                return self.state()        # a finished game starts again with start()
             if self.status == "open":      # skipped: counts as not yet
+                if self.mode == "climb":
+                    self.lives -= 1
                 self._finish("not_yet")
+                if self.over:              # that skip ended the game: stay here, show the answer
+                    self.status = "revealed"
+                    self._draw("cross")
+                    return self.state()
             step = {"alone": 1, "helped": 0, "not_yet": -1}[self.last]
             self.level = max(0, min(7, self.level + step))
             problem, how = self.bank.pick(self.lang, self.level, topic=self.problem["topic"],
@@ -504,7 +612,7 @@ class Tutor:
     def handle(self, parts):
         """parts is the path after /api/, split on "/"."""
         action, args = (parts[0] if parts else "state"), parts[1:]
-        if action == "start" and len(args) == 3:
+        if action == "start" and len(args) in (3, 4):   # the fourth is the game mode
             return self.start(*args)
         if action == "answer" and len(args) == 1:
             return self.answer(args[0])
