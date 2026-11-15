@@ -21,8 +21,11 @@ def mode_type(value):
 def add_cascade_arguments(parser):
     parser.add_argument("--no-llm", action="store_true", help="never call the model: the prior answers")
     parser.add_argument("--twins", action="store_true",
-                        help="look for the same problem, already solved, in the bank first (off by default)")
-    parser.add_argument("--bank", default="", metavar="JSONL", help="solved problems for --twins")
+                        help="look for the same problem, already solved, in the bank first, and stop if "
+                             "the bank is missing. predict.py does this by itself when its bank is there")
+    parser.add_argument("--no-twins", action="store_true", help="never look problems up in the bank")
+    parser.add_argument("--bank", default="", metavar="PATH",
+                        help="solved problems for the lookup: a .jsonl file, or a folder of them")
     parser.add_argument("--calib", default="", metavar="PATH",
                         help="calibration file (default: results/calib-default.json if it exists)")
     parser.add_argument("--mode", type=mode_type, default="direct", help="direct or reason:<tokens>")
@@ -57,8 +60,36 @@ def load_probs(paths):
     return table
 
 
-def build_ctx(args, default_bank):
-    """The run options that solve() gets with every problem. Built once, before the loop."""
+def load_bank(path):
+    """The solved problems of a bank: one .jsonl file, or every .jsonl file in a folder.
+
+    Rows without a text or a label are skipped. In a folder, each id gets its file's name in
+    front, because two sources can use the same id for different problems (M3Kang-style ids
+    of another year), and the lookup tells problems apart by id."""
+    folder = os.path.isdir(path)
+    files = sorted(os.path.join(path, name) for name in os.listdir(path) if name.endswith(".jsonl")) if folder else [path]
+    problems = []
+    for file in files:
+        source = os.path.splitext(os.path.basename(file))[0]
+        with open(file, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(row, dict) or not row.get("text") or row.get("label") not in list("ABCDE"):
+                    continue
+                if folder:
+                    row["id"] = f"{source}:{row.get('id', '')}"
+                problems.append(row)
+    return problems
+
+
+def build_ctx(args, default_bank, auto_twins=False):
+    """The run options that solve() gets with every problem. Built once, before the loop.
+
+    auto_twins (predict.py): the lookup is on whenever the bank is there. A missing or broken
+    bank is reported and the run goes on without it: it must never cost the other answers."""
     ctx = {"twins": None, "calib": None, "no_llm": args.no_llm, "mode": args.mode, "probs": None,
            "prefix": None, "prefix_warm": False, "perms": args.perms}
     if args.probs:
@@ -92,14 +123,24 @@ def build_ctx(args, default_bank):
     if calib:
         with open(calib, encoding="utf-8") as f:
             ctx["calib"] = json.load(f)
-    if args.twins:
-        from .twins import TwinIndex
-        bank = args.bank or default_bank
-        if not os.path.exists(bank):
-            sys.exit(f"{bank} not found. Pass the solved problems for --twins with --bank.")
+    bank = args.bank or default_bank
+    if args.twins and not os.path.exists(bank):
+        sys.exit(f"{bank} not found. Pass the solved problems for --twins with --bank.")
+    if not args.no_twins and (args.twins or (auto_twins and os.path.exists(bank))):
         start = time.perf_counter()
-        with open(bank, encoding="utf-8") as f:
-            ctx["twins"] = TwinIndex([json.loads(line) for line in f if line.strip()])
-        print(f"twin bank: {len(ctx['twins'].docs)} problems from {bank}, "
-              f"built in {time.perf_counter() - start:.1f} s", file=sys.stderr)
+        try:
+            from .twins import TwinIndex
+            problems = load_bank(bank)
+            if not problems:
+                raise ValueError("no solved problems in it")
+            ctx["twins"] = TwinIndex(problems)
+            print(f"lookup: on, {len(problems)} solved problems from {bank}, "
+                  f"built in {time.perf_counter() - start:.1f} s", file=sys.stderr)
+        except Exception as error:
+            if args.twins:
+                sys.exit(f"--twins, but the bank {bank} could not be read: {error}")
+            ctx["twins"] = None
+            print(f"lookup: off, the bank {bank} could not be read ({error})", file=sys.stderr)
+    elif auto_twins:
+        print(f"lookup: off ({'--no-twins' if args.no_twins else 'no bank at ' + bank})", file=sys.stderr)
     return ctx

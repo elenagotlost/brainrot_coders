@@ -3,7 +3,11 @@
 
     python3 predict.py --input problems.jsonl --output predictions.csv
     python3 predict.py --input problems.jsonl --output predictions.csv --no-llm
-    python3 predict.py --input problems.jsonl --output predictions.csv --twins --bank data/v2/train.jsonl
+    python3 predict.py --input problems.jsonl --output predictions.csv --no-twins
+
+Before anything else, each problem is looked up in the bank of solved problems
+(every .jsonl file in data/bank/), when that folder is there. A problem that is
+not in the bank goes on to the code stage. --no-twins switches the lookup off.
 
 Input: one JSON object per line with at least "id" and "text", plus
 "options" ({"A": ..., "E": ...}) and "language" when available.
@@ -37,7 +41,7 @@ def main():
         from copilot.rag import Index
         index = Index(args.index)
 
-    ctx = build_ctx(args, default_bank="data/v2/train.jsonl")
+    ctx = build_ctx(args, default_bank="data/bank", auto_twins=True)
 
     with open(args.input, encoding="utf-8") as f:
         problems = [json.loads(line) for line in f if line.strip()]
