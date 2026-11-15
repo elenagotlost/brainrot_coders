@@ -189,6 +189,10 @@ def api_start(student: str, lang: str, level: str):
     return api("start", student, lang, level)
 
 
+def api_play(student: str, lang: str, level: str, mode: str):
+    return api("start", student, lang, level, mode)
+
+
 def api_answer(letter: str):
     return api("answer", letter)
 
@@ -211,6 +215,7 @@ def api_state():
 
 ui = WebUI()
 ui.expose_api("GET", "/api/start/{student}/{lang}/{level}", api_start)
+ui.expose_api("GET", "/api/start/{student}/{lang}/{level}/{mode}", api_play)
 ui.expose_api("GET", "/api/answer/{letter}", api_answer)
 ui.expose_api("GET", "/api/hint", api_hint)
 ui.expose_api("GET", "/api/solution", api_solution)
