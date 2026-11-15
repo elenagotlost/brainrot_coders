@@ -58,7 +58,7 @@ def answer_letter(problem, examples=(), timeout=60, image_b64=None, url=URL):
 
 LETTERS = "ABCDE"
 # Read deep: without a grammar the base model often wants to start a sentence, so a
-# letter can sit far down the list. laptop/dump_probs.py reads the same depth, and the
+# letter can sit far down the list. experiments/dump_probs.py reads the same depth, and the
 # calibration is fitted on its output, so keep the two the same.
 TOP_LOGPROBS = 5000
 _debug_printed = False
@@ -78,7 +78,7 @@ def letter_probs(top_logprobs):
     """Map the top tokens of the first position onto A-E and renormalize.
 
     Returns (probabilities or None, letter_mass). The same rule as
-    laptop/dump_probs.py: "A", " A", "A)", "(A" and "**A" count as A, and their
+    experiments/dump_probs.py: "A", " A", "A)", "(A" and "**A" count as A, and their
     probabilities add up; a lowercase "a" does not count. None means no letter
     was among the tokens. letter_mass is the share of the listed probability
     that fell on letters before renormalizing.

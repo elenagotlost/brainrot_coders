@@ -36,7 +36,7 @@ def add_cascade_arguments(parser):
                         help="the code stage: the model writes a short program and the board runs it. "
                              "auto (default): on when the code model server answers")
     parser.add_argument("--probs", default=[], nargs="+", metavar="CSV",
-                        help="replay the probabilities saved by laptop/dump_probs.py instead of calling "
+                        help="replay the probabilities saved by experiments/dump_probs.py instead of calling "
                              "the model (for scoring a whole split fast; the times mean nothing). "
                              "Several files are joined")
     parser.add_argument("--priors", default="", metavar="PATH",

@@ -26,9 +26,11 @@ download() {
 }
 
 gb=$(free_gb "$MODELS_DIR")
-awk "BEGIN {exit !($gb >= 1.2)}" || die "only ${gb} GB free in $MODELS_DIR; the models need about 0.9 GB."
+awk "BEGIN {exit !($gb >= 2.5)}" || die "only ${gb} GB free in $MODELS_DIR; the models need about 2.0 GB."
 
 download "$LLM_REPO" "$LLM_REVISION" "$LLM_FILE" "$LLM_SHA256"
 download "$EMBED_REPO" "$EMBED_REVISION" "$EMBED_FILE" "$EMBED_SHA256"
+# the code model that predict.py uses (board/systemd/math-code.service serves it)
+download "$CODE_REPO" "$CODE_REVISION" "$CODE_FILE" "$CODE_SHA256"
 
 ok "Next: ./board/04_install_services.sh"

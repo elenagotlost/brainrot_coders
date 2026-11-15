@@ -199,7 +199,7 @@ def solve(problem, index=None, k=0, exclude_id=None, image_b64=None, llm_url=URL
             return done(prior_letter, "fallback", failure(error))
 
     if ctx.get("probs") is not None:
-        # replay: probabilities saved by laptop/dump_probs.py stand in for the model
+        # replay: probabilities saved by experiments/dump_probs.py stand in for the model
         # call, so a whole split is scored in seconds. Latency means nothing here.
         saved = ctx["probs"].get((problem.get("id"), problem.get("language", "")))
         if saved is None:
