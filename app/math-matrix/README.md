@@ -56,7 +56,7 @@ sketch/sketch.yaml       board platform
 
 ## Build the bank
 
-From the repository root, with `data/train.jsonl` and `data/val.jsonl` prepared (README step 9, then `laptop/canonicalize.py`)
+From the repository root, with `data/train.jsonl` and `data/val.jsonl` prepared (SETUP.md step 9, then `laptop/canonicalize.py`)
 and the language model server running:
 
 ```bash
