@@ -18,13 +18,16 @@ right answer -> a neighbour one level up; needed help -> same level;
 gave up -> same topic, one level down.
 
 It is also a game, with rules that reward thinking over guessing (see score()):
-a hint costs fewer points than a wrong guess. Three modes: "train" (endless
-practice), "round" (five problems, then stars) and "climb" (three lives: how
-high can you get?).
+a hint costs fewer points than a wrong guess. Four modes: "train" (endless
+practice), "round" (five problems, then stars), "climb" (three lives: how
+high can you get?) and "teach" (learning by teaching: the student explains the
+problem to Kanga, a classmate who can't solve it, and can answer only once
+Kanga understands; see teachback.py).
 
 The bank (teach.db) is built by laptop/build_teach_bank.py. The student's
 history stays in a second SQLite file on the board: nothing leaves the device.
 """
+import base64
 import json
 import os
 import random
@@ -34,6 +37,8 @@ import threading
 import time
 import urllib.request
 
+import teachback
+
 LETTERS = "ABCDE"
 HERE = os.path.dirname(os.path.abspath(__file__))
 BANK_PATH = os.environ.get("TUTOR_BANK", os.path.join(HERE, "teach.db"))
@@ -42,7 +47,7 @@ TWIN_CAP = 0.9      # above this similarity two problems are the same problem: s
 MIN_SIM = 0.12      # below this a "similar" problem is not similar
 MAX_HINT_WORDS = 40
 ROWS, COLS = 8, 13
-MODES = ("train", "round", "climb")
+MODES = ("train", "round", "climb", "teach")
 ROUND_SIZE = 5      # problems in one round
 LIVES = 3           # wrong answers allowed in a climb
 RANKS = (0, 300, 800, 1500, 3000)   # total points for each rank; the page has the names
@@ -254,6 +259,10 @@ class Bank:
         self.hints = {(pid, lang): hint for pid, lang, hint in db.execute("SELECT id, lang, hint FROM hints")}
         self.explanations = {(pid, lang): text for pid, lang, text in
                              db.execute("SELECT id, lang, text FROM explanations")}
+        try:  # Teach Kanga's scripts (laptop/load_kanga_bank.py); an older bank has none
+            self.scripts = {pid: json.loads(script) for pid, script in db.execute("SELECT id, script FROM kanga")}
+        except sqlite3.Error:
+            self.scripts = {}
         db.close()
         self.languages = sorted({lang for _pid, lang in self.problems})
 
@@ -283,18 +292,20 @@ class Bank:
         return example, {"score": round(score, 3), "easier": example["level"] < level,
                          "same_topic": example["topic"] == topic}
 
-    def pick(self, lang, level, topic=None, near=None, seen=(), stay_on_topic=False, rng=random):
-        """The next problem: at `level`, close to problem id `near` on the map, on `topic` if it can be."""
+    def pick(self, lang, level, topic=None, near=None, seen=(), stay_on_topic=False, rng=random, allowed=None):
+        """The next problem: at `level`, close to problem id `near` on the map, on `topic` if it can be.
+        allowed, when given, is the set of ids it may choose from (Teach Kanga: the scripted ones)."""
         level = max(0, min(7, level))
         seen = set(seen)
-        pool = [p for p in self.of(lang) if p["id"] not in seen]
+        everything = [p for p in self.of(lang) if not allowed or p["id"] in allowed]
+        pool = [p for p in everything if p["id"] not in seen]
         if not pool:
-            pool = self.of(lang)
+            pool = everything
         if near:
             for _score, other in self.neighbours.get(near, []):
                 p = self.get(other, lang)
                 if p and p["id"] not in seen and p["level"] == level and _score < TWIN_CAP \
-                        and (p["topic"] == topic or not stay_on_topic):
+                        and (not allowed or p["id"] in allowed) and (p["topic"] == topic or not stay_on_topic):
                     return p, "neighbour"
         on_topic = [p for p in pool if p["topic"] == topic]
         at_level = [p for p in on_topic if p["level"] == level]
@@ -426,6 +437,7 @@ class Tutor:
         # the game
         self.mode, self.points, self.streak, self.best_streak = "train", 0, 0, 0
         self.lives, self.results, self.over, self.gained, self.top_level = LIVES, [], False, None, 0
+        self.teach = None   # the conversation with Kanga, in the "teach" mode
 
     # -- helpers
     def _draw(self, left):
@@ -434,6 +446,19 @@ class Tutor:
             self.on_matrix(self.grid)
         except Exception:
             pass  # the matrix must never break the lesson
+
+    def _allowed(self):
+        """Teach Kanga serves only the problems that have a script, when there are scripts."""
+        if self.mode == "teach" and self.bank.scripts:
+            return set(self.bank.scripts)
+        return None
+
+    def _helped(self):
+        """How much help this problem took, counted like hints for the points: in the teach mode,
+        every explanation after the first one."""
+        if self.mode == "teach" and self.teach:
+            return min(3, max(0, len(self.teach["explanations"]) - 1))
+        return len([h for h in self.hints if h["rung"] <= 3])
 
     def _public(self, problem):
         return {"id": problem["id"], "level": problem["level"], "topic": problem["topic"], "year": problem["year"],
@@ -448,6 +473,11 @@ class Tutor:
                    "problem": self._public(self.problem) if self.problem else None}
             if self.problem and self.status in ("solved", "revealed"):
                 out["label"] = self.problem["label"]
+            if self.mode == "teach" and self.teach:
+                t = self.teach
+                out["teach"] = {"chat": [dict(turn) for turn in t["chat"]], "convinced": t["convinced"],
+                                "status": t["status"], "explained": len(t["explanations"]),
+                                "prepared": t["ready"].is_set(), "notes_source": t["notes_source"]}
             if self.student:
                 out["profile"] = self.history.profile(self.student)
                 total = self.history.total(self.student)
@@ -465,7 +495,64 @@ class Tutor:
         self.hints, self.tries, self.status, self.busy, self.gained = [], [], "open", False, None
         self.seen.append(problem["id"])
         self.started = time.perf_counter()
+        self.teach = None
+        if self.mode == "teach":
+            self.teach = {"chat": [{"who": "tutor", "text": teachback.say(self.lang, "intro"), "source": "fixed"}],
+                          "explanations": [], "status": "start", "convinced": False, "notes": "",
+                          "notes_source": "", "ready": threading.Event(),
+                          "script": self.bank.scripts.get(problem["id"])}
+            threading.Thread(target=self._prepare, args=(problem, self.teach), daemon=True).start()
         self._draw("L")
+
+    # -- the teach mode: Kanga's notes are prepared while the student reads
+    def _prepare(self, problem, teach):
+        notes = self.bank.explanations.get((problem["id"], self.lang), "")
+        source = "script" if teach["script"] else "bank" if notes else "none"
+        if not teach["script"]:  # a scripted problem never calls the model
+            try:  # the problem, in the server's cache before the student writes
+                teachback.warm(problem, self.lang, self.llm)
+            except Exception:
+                pass
+        with self.lock:
+            teach["notes"], teach["notes_source"] = notes, source
+        teach["ready"].set()
+
+    def explain(self, text):
+        """The student's explanation, or their answer to Kanga's last question."""
+        with self.lock:
+            text = (text or "").strip()[:teachback.MAX_CHARS]
+            teach = self.teach
+            if self.mode != "teach" or not teach or self.status != "open" or self.busy or teach["convinced"] \
+                    or len(text) < 2:
+                return self.state()
+            teach["chat"].append({"who": "student", "text": text})
+            teach["explanations"].append(text)
+            self.busy = True
+            self._draw("dots")
+            threading.Thread(target=self._reply, args=(self.problem, teach), daemon=True).start()
+            return self.state()
+
+    def _reply(self, problem, teach):
+        begin = time.perf_counter()
+        teach["ready"].wait(teachback.NOTES_WAIT_S)
+        with self.lock:
+            chat, notes, lang = [dict(turn) for turn in teach["chat"]], teach["notes"], self.lang
+        analysis = teachback.analyse(problem, teach["explanations"], notes, script=teach["script"])
+        try:
+            reply, source = teachback.kanga_reply(problem, lang, chat, analysis, self.llm,
+                                                  help_text=method(problem.get("topic"), lang)[1],
+                                                  script=teach["script"])
+        except Exception as error:  # Kanga must never break the lesson
+            reply, source = teachback.say(lang, "stuck"), f"fixed: {type(error).__name__}"
+        with self.lock:
+            if self.teach is not teach:
+                return  # the student moved on
+            teach["chat"].append({"who": "tutor", "text": reply, "source": source, "status": analysis["status"],
+                                  "ms": round(1000 * (time.perf_counter() - begin))})
+            teach["status"] = analysis["status"]
+            teach["convinced"] = analysis["status"] == "convinced"
+            self.busy = False
+            self._draw("tick" if teach["convinced"] else "L")
 
     # -- actions
     def start(self, student, lang, level, mode="train"):
@@ -478,7 +565,8 @@ class Tutor:
             self.mode = mode if mode in MODES else "train"
             self.points, self.lives, self.results, self.over, self.top_level = 0, LIVES, [], False, self.level
             self.streak, self.best_streak = self.history.streaks(self.student)
-            problem, how = self.bank.pick(self.lang, self.level, seen=self.seen, rng=self.rng)
+            problem, how = self.bank.pick(self.lang, self.level, seen=self.seen, rng=self.rng,
+                                          allowed=self._allowed())
             self._set_problem(problem, how)
             return self.state()
 
@@ -487,10 +575,12 @@ class Tutor:
             letter = (letter or "").upper()
             if self.status != "open" or letter not in LETTERS or len(letter) != 1 or letter in self.tries:
                 return self.state()
+            if self.mode == "teach" and not (self.teach and self.teach["convinced"]):
+                return self.state()  # first explain it to Kanga
             self.tries.append(letter)
             if letter == self.problem["label"]:
                 self.status = "solved"
-                alone = len(self.tries) == 1 and len(self.hints) <= 1
+                alone = len(self.tries) == 1 and self._helped() <= 1
                 self._finish("alone" if alone else "helped")
                 self._draw("star" if alone else "tick")
             else:
@@ -507,7 +597,7 @@ class Tutor:
         self.last = outcome
         solved = outcome != "not_yet"
         wrong = len(self.tries) - solved
-        rungs = len([h for h in self.hints if h["rung"] <= 3])
+        rungs = self._helped()
         self.gained = score(rungs, wrong, self.problem["level"], self.streak) if solved else None
         points = self.gained["total"] if solved else 0
         self.points += points
@@ -518,13 +608,14 @@ class Tutor:
         self.results.append(stars(outcome, wrong))
         self.over = (self.mode == "round" and len(self.results) >= ROUND_SIZE) or \
                     (self.mode == "climb" and self.lives <= 0)
-        self.history.add(self.student, self.problem, outcome, len(self.tries), len(self.hints),
+        used = len(self.teach["explanations"]) if self.mode == "teach" and self.teach else len(self.hints)
+        self.history.add(self.student, self.problem, outcome, len(self.tries), used,
                          time.perf_counter() - self.started, points, self.mode)
 
     def hint(self):
         """Climb one rung. Rung 4, the solution, has its own action: solution()."""
         with self.lock:
-            if self.status != "open" or self.busy or len(self.hints) >= 3:
+            if self.status != "open" or self.busy or len(self.hints) >= 3 or self.mode == "teach":
                 return self.state()
             rung, problem = len(self.hints) + 1, self.problem
             begin = time.perf_counter()
@@ -575,12 +666,20 @@ class Tutor:
     def solution(self):
         """Rung 4: only when the student asks for it on purpose."""
         with self.lock:
-            if self.status != "open" or self.busy or len(self.hints) < 3:
+            teaching = self.mode == "teach" and self.teach
+            if self.status != "open" or self.busy:
+                return self.state()
+            if teaching and (len(self.teach["explanations"]) < 2 or self.teach["convinced"]):
+                return self.state()  # explain it twice first; once Kanga understands, just answer
+            if not teaching and len(self.hints) < 3:
                 return self.state()  # the ladder is climbed one rung at a time
             problem = self.problem
+            explanation = self.bank.explanations.get((problem["id"], self.lang), "")
+            script = self.bank.scripts.get(problem["id"]) or {}
+            if teaching and not explanation and script:  # the other modes stay as they were
+                explanation = (script.get("solution") or {}).get(self.lang, "")
             self.hints.append({"rung": 4, "kind": "solution", "label": problem["label"],
-                               "answer": problem["options"][problem["label"]],
-                               "explanation": self.bank.explanations.get((problem["id"], self.lang), "")})
+                               "answer": problem["options"][problem["label"]], "explanation": explanation})
             self.status = "revealed"
             if self.mode == "climb":
                 self.lives -= 1
@@ -604,7 +703,8 @@ class Tutor:
             self.level = max(0, min(7, self.level + step))
             problem, how = self.bank.pick(self.lang, self.level, topic=self.problem["topic"],
                                           near=self.problem["id"], seen=self.seen,
-                                          stay_on_topic=self.last == "not_yet", rng=self.rng)
+                                          stay_on_topic=self.last == "not_yet", rng=self.rng,
+                                          allowed=self._allowed())
             self._set_problem(problem, how)
             return self.state()
 
@@ -616,6 +716,13 @@ class Tutor:
             return self.start(*args)
         if action == "answer" and len(args) == 1:
             return self.answer(args[0])
+        if action == "explain" and len(args) == 1:   # the text as base64url, so it holds no "/"
+            try:
+                raw = args[0][:4 * teachback.MAX_CHARS]
+                text = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)).decode("utf-8", "replace")
+            except (ValueError, TypeError):
+                return {"error": "unreadable explanation"}
+            return self.explain(text)
         if action in ("hint", "solution", "next", "state") and not args:
             return getattr(self, action)()
         return {"error": "unknown request"}
