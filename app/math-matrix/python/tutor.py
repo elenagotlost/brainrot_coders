@@ -676,7 +676,7 @@ class Tutor:
             problem = self.problem
             explanation = self.bank.explanations.get((problem["id"], self.lang), "")
             script = self.bank.scripts.get(problem["id"]) or {}
-            if not explanation and script:
+            if teaching and not explanation and script:  # the other modes stay as they were
                 explanation = (script.get("solution") or {}).get(self.lang, "")
             self.hints.append({"rung": 4, "kind": "solution", "label": problem["label"],
                                "answer": problem["options"][problem["label"]], "explanation": explanation})
