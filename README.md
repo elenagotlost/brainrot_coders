@@ -2,6 +2,9 @@
 
 Team **brainrot_coders**, Datathon FME 2026, Qualcomm challenge "Math on the Edge".
 
+🥉 **3rd place overall** at the [Datathon FME 2026](https://www.datathon.cat/) (Barcelona, 14–15 November
+2026), with **47% accuracy** on the organizers' hidden test set of unseen problems.
+
 A math copilot that runs entirely on the Arduino UNO Q (4 GB), offline. It does both halves of the
 challenge:
 
@@ -17,6 +20,8 @@ challenge:
 
 | | Result |
 | --- | --- |
+| **Final ranking** | **3rd place overall** |
+| **Reasoning, organizers' hidden test set (unseen problems)** | **47%** |
 | Reasoning, 100 practice rows (new problems, English and Catalan) | **37%**, against 21% for the baseline model and 20% for guessing |
 | Reasoning, 20-problem mock exam on the board, Wi-Fi off | 11 of 20, mean 32.1 s, worst 52.0 s |
 | Teaching, hints shown that leak the answer | 0 of 873 |
@@ -438,7 +443,8 @@ SETUP.md               the organizers' guide: from a fresh board to the baseline
 
 ## Team
 
-brainrot_coders: Elena Andreev, Jan Balayla, Andreu Clotas and Josep Cardona.
+brainrot_coders: Elena Andreev, Jan Balayla, Andreu Clotas and Josep Cardona. 3rd place overall at
+the Datathon FME 2026.
 
 ## Credits and licenses
 
